@@ -3,15 +3,20 @@
 Uso:  python app.py   y abre http://localhost:5000 en el navegador.
 Usa la misma base de datos (gastos.db) que gastos.py.
 """
+import hmac
 import os
-from datetime import date
+import secrets
+from datetime import date, timedelta
 
-from flask import Flask, redirect, render_template_string, request, url_for
+from flask import Flask, redirect, render_template_string, request, session, url_for
 
 import gastos  # reutiliza la tabla y la conexión de la versión 1
 
 gastos.DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gastos.db")
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+app.permanent_session_lifetime = timedelta(days=30)  # no pide clave todos los días
+app.config.update(SESSION_COOKIE_SAMESITE="Lax")
 CATEGORIAS = ["comida", "transporte", "ocio", "hogar", "salud", "otros"]
 
 
@@ -42,6 +47,7 @@ main{max-width:900px;margin:0 auto;padding:24px 16px 48px}
 h1{font-size:24px;margin:0 0 4px}
 h2{font-size:17px;margin:0 0 14px}
 .sub{color:var(--mut);margin:0 0 20px}
+a{color:var(--acc)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:16px}
 .stats .card{margin:0}
@@ -66,7 +72,7 @@ th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);white-
 <body>
 <main>
   <h1>Control de gastos</h1>
-  <p class="sub">Resumen de {{ mes }}</p>
+  <p class="sub">Resumen de {{ mes }} · <a href="{{ url_for('salir') }}">Salir</a></p>
   {% if error %}<div class="err">Revisa el monto (número mayor a 0) y la fecha.</div>{% endif %}
 
   <div class="stats">
@@ -115,6 +121,55 @@ th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);white-
 </main>
 </body>
 </html>"""
+
+
+LOGIN = """<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entrar</title>
+<style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px system-ui,sans-serif;background:#f6f7f9;color:#1d2430}
+@media (prefers-color-scheme:dark){body{background:#12151b;color:#e8ebf0}}
+form{width:min(320px,90vw);display:grid;gap:12px}
+input,button{font:inherit;padding:11px;border-radius:8px;border:1px solid #8886}
+button{background:#2f6fed;border-color:#2f6fed;color:#fff;cursor:pointer}
+.err{color:#d33}
+</style></head><body>
+<form method="post">
+  <h1>Control de gastos</h1>
+  <input type="password" name="clave" placeholder="Contraseña" autofocus required>
+  <button>Entrar</button>
+  {% if error %}<div class="err">Contraseña incorrecta.</div>{% endif %}
+</form></body></html>"""
+
+
+@app.before_request
+def exigir_login():
+    # Todo requiere sesión, salvo la pantalla de login
+    if request.endpoint in ("login", "static") or session.get("ok"):
+        return None
+    return redirect(url_for("login"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = False
+    if request.method == "POST":
+        esperado = os.environ.get("APP_PASSWORD", "").encode()
+        recibido = request.form.get("clave", "").encode()
+        # Si APP_PASSWORD no está configurada, nadie puede entrar
+        if esperado and hmac.compare_digest(recibido, esperado):
+            session.permanent = True
+            session["ok"] = True
+            return redirect(url_for("inicio"))
+        error = True
+    return render_template_string(LOGIN, error=error)
+
+
+@app.route("/salir")
+def salir():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.route("/")
@@ -173,4 +228,6 @@ def eliminar(id_):
 
 
 if __name__ == "__main__":
+    # Solo para uso local (contraseña: gastos). En el servidor se define APP_PASSWORD.
+    os.environ.setdefault("APP_PASSWORD", "gastos")
     app.run(debug=True)
