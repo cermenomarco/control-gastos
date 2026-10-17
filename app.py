@@ -209,6 +209,9 @@ th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);white-
 .hidden{display:none!important}
 .chk{display:flex;align-items:center;gap:6px}
 .chk input{width:auto;padding:0}
+nav{display:flex;gap:8px;overflow-x:auto;margin:0 0 20px;padding-bottom:4px}
+nav a{padding:8px 14px;border:1px solid var(--line);border-radius:99px;text-decoration:none;color:var(--txt);background:var(--card);white-space:nowrap}
+nav a.activa{background:var(--acc);border-color:var(--acc);color:#fff}
 summary{cursor:pointer;font-weight:600;font-size:17px}
 details[open] summary{margin-bottom:14px}
 details h2{margin-top:18px}
@@ -219,9 +222,15 @@ details h2{margin-top:18px}
 <body>
 <main>
   <h1>Control de gastos</h1>
-  <p class="sub">Resumen de {{ mes }} · <a href="{{ url_for('salir') }}">Salir</a></p>
+  <p class="sub">{% if vista == 'inicio' %}Resumen de {{ mes }} · {% endif %}<a href="{{ url_for('salir') }}">Salir</a></p>
+  <nav>
+    {% for destino, rotulo in [('inicio', 'Inicio'), ('ver_gastos', 'Gastos'), ('ver_tarjetas', 'Tarjetas'), ('ver_suscripciones', 'Suscripciones')] %}
+    <a href="{{ url_for(destino) }}"{% if request.endpoint == destino %} class="activa"{% endif %}>{{ rotulo }}</a>
+    {% endfor %}
+  </nav>
   {% if error %}<div class="err">{{ error }}</div>{% endif %}
 
+  {% if vista == 'inicio' %}
   <div class="stats">
     <div class="card"><div class="lbl">Total del mes</div><div class="big">{{ total|peso }}</div></div>
     <div class="card"><div class="lbl">Gastos del mes</div><div class="big">{{ cantidad }}</div></div>
@@ -256,7 +265,10 @@ details h2{margin-top:18px}
     </form>
   </div>
 
-  <details class="card">
+  {% endif %}
+
+  {% if vista == 'tarjetas' %}
+  <details class="card" open>
     <summary>Mis tarjetas y bancos</summary>
     <h2>Tarjetas</h2>
     {% for tid, etiqueta, modalidad, info in tarjetas %}
@@ -298,6 +310,9 @@ details h2{margin-top:18px}
     {% else %}<p class="lbl">Cuando cargues compras con tarjeta de crédito, acá ves cuánto pagas en cada vencimiento.</p>{% endif %}
   </div>
 
+  {% endif %}
+
+  {% if vista == 'suscripciones' %}
   <div class="card">
     <h2>Suscripciones</h2>
     {% if suscripciones %}
@@ -330,6 +345,9 @@ details h2{margin-top:18px}
     <p class="lbl">Las suscripciones cuentan el mes en que se cobran; las tarjetas, el mes en que vence cada resumen (solo con las compras ya cargadas).</p>
   </div>
 
+  {% endif %}
+
+  {% if vista == 'inicio' %}
   <div class="card">
     <h2>Por categoría</h2>
     {% for cat, suma in por_cat %}
@@ -340,22 +358,26 @@ details h2{margin-top:18px}
     {% else %}<p class="lbl">Todavía no hay gastos este mes.</p>{% endfor %}
   </div>
 
+  {% endif %}
+
+  {% if vista in ('inicio', 'gastos') %}
   <div class="card">
-    <h2>Todos los gastos</h2>
+    <h2>{% if vista == 'gastos' %}Todos los gastos{% else %}Últimos gastos · <a href="{{ url_for('ver_gastos') }}">ver todos</a>{% endif %}</h2>
     <div class="wrap"><table>
-      <tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Medio</th><th class="num">Monto</th><th></th></tr>
-      {% for id, fecha, monto, cat, desc, medio in filas %}
+      <tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Medio</th><th class="num">Monto</th>{% if vista == 'gastos' %}<th></th>{% endif %}</tr>
+      {% for id, fecha, monto, cat, desc, medio in (filas if vista == 'gastos' else filas[:5]) %}
       <tr>
         <td>{{ fecha }}</td>
         <td><span class="tag" style="background:{{ cat|color }}">{{ cat }}</span></td>
         <td>{{ desc }}</td>
         <td>{{ medio }}</td>
         <td class="num">{{ monto|peso }}</td>
-        <td><form method="post" action="{{ url_for('eliminar', id_=id) }}" onsubmit="return confirm('¿Eliminar este gasto?')"><button class="del" title="Eliminar">✕</button></form></td>
+        {% if vista == 'gastos' %}<td><form method="post" action="{{ url_for('eliminar', id_=id) }}" onsubmit="return confirm('¿Eliminar este gasto?')"><button class="del" title="Eliminar">✕</button></form></td>{% endif %}
       </tr>
       {% else %}<tr><td colspan="6" class="lbl">Sin gastos todavía.</td></tr>{% endfor %}
     </table></div>
   </div>
+  {% endif %}
 </main>
 <script>
 function cambiarMedio() {
@@ -381,8 +403,8 @@ function cambiarModalidad() {
     el.required = credito;
   });
 }
-cambiarMedio();
-cambiarModalidad();
+if (document.getElementById('medio')) cambiarMedio();
+if (document.getElementById('modalidad')) cambiarModalidad();
 </script>
 </body>
 </html>"""
@@ -437,8 +459,7 @@ def salir():
     return redirect(url_for("login"))
 
 
-@app.route("/")
-def inicio():
+def renderizar(vista):
     con = conectar()
     mes = date.today().strftime("%Y-%m")
     total, cantidad = con.execute(
@@ -521,10 +542,30 @@ def inicio():
         filas=filas, cats=cats, hoy=date.today().isoformat(),
         tarjetas=tarjetas, bancos=bancos, tipos=TIPOS_TARJETA, medios=MEDIOS,
         modalidades=MODALIDADES, tarjeta_top=tarjeta_top, banco_top=banco_top,
-        proximos=proximos, sin_fechas=sin_fechas,
+        vista=vista, proximos=proximos, sin_fechas=sin_fechas,
         suscripciones=suscripciones, total_subs=total_subs, proyeccion=proyeccion_meses,
         error=ERRORES.get(request.args.get("error")),
     )
+
+
+@app.route("/")
+def inicio():
+    return renderizar("inicio")
+
+
+@app.route("/gastos")
+def ver_gastos():
+    return renderizar("gastos")
+
+
+@app.route("/tarjetas")
+def ver_tarjetas():
+    return renderizar("tarjetas")
+
+
+@app.route("/suscripciones")
+def ver_suscripciones():
+    return renderizar("suscripciones")
 
 
 @app.post("/agregar")
@@ -582,7 +623,7 @@ def eliminar(id_):
     con.execute("DELETE FROM gastos WHERE id = ?", (id_,))
     con.commit()
     con.close()
-    return redirect(url_for("inicio"))
+    return redirect(url_for("ver_gastos"))
 
 
 @app.post("/tarjetas")
@@ -601,7 +642,7 @@ def agregar_tarjeta():
         and (modalidad == "debito" or (cierre and venc and 1 <= cierre <= 31 and 1 <= venc <= 31))
     )
     if not valida:
-        return redirect(url_for("inicio", error="tarjeta"))
+        return redirect(url_for("ver_tarjetas", error="tarjeta"))
     con = conectar()
     datos = (modalidad, cierre, venc, a_int(form.get("banco_id")))
     existente = con.execute(
@@ -619,7 +660,7 @@ def agregar_tarjeta():
         )
     con.commit()
     con.close()
-    return redirect(url_for("inicio"))
+    return redirect(url_for("ver_tarjetas"))
 
 
 @app.post("/tarjetas/<int:id_>/eliminar")
@@ -632,11 +673,11 @@ def eliminar_tarjeta(id_):
     ).fetchone()[0]
     if usada:
         con.close()
-        return redirect(url_for("inicio", error="usado"))
+        return redirect(url_for("ver_tarjetas", error="usado"))
     con.execute("DELETE FROM tarjetas WHERE id = ?", (id_,))
     con.commit()
     con.close()
-    return redirect(url_for("inicio"))
+    return redirect(url_for("ver_tarjetas"))
 
 
 @app.post("/bancos")
@@ -646,11 +687,11 @@ def agregar_banco():
     existe = con.execute("SELECT 1 FROM bancos WHERE nombre = ? COLLATE NOCASE", (nombre,)).fetchone()
     if not nombre or existe:
         con.close()
-        return redirect(url_for("inicio", error="banco"))
+        return redirect(url_for("ver_tarjetas", error="banco"))
     con.execute("INSERT INTO bancos (nombre) VALUES (?)", (nombre,))
     con.commit()
     con.close()
-    return redirect(url_for("inicio"))
+    return redirect(url_for("ver_tarjetas"))
 
 
 @app.post("/bancos/<int:id_>/eliminar")
@@ -663,11 +704,11 @@ def eliminar_banco(id_):
     ).fetchone()[0]
     if usos:
         con.close()
-        return redirect(url_for("inicio", error="usado"))
+        return redirect(url_for("ver_tarjetas", error="usado"))
     con.execute("DELETE FROM bancos WHERE id = ?", (id_,))
     con.commit()
     con.close()
-    return redirect(url_for("inicio"))
+    return redirect(url_for("ver_tarjetas"))
 
 
 @app.post("/suscripciones")
@@ -680,7 +721,7 @@ def agregar_suscripcion():
         monto = 0
     dia = a_int(form.get("dia_cobro"))
     if not nombre or monto <= 0 or not dia or not 1 <= dia <= 31:
-        return redirect(url_for("inicio", error="suscripcion"))
+        return redirect(url_for("ver_suscripciones", error="suscripcion"))
     con = conectar()
     con.execute(
         "INSERT INTO suscripciones (nombre, monto, dia_cobro, tarjeta_id) VALUES (?, ?, ?, ?)",
@@ -688,7 +729,7 @@ def agregar_suscripcion():
     )
     con.commit()
     con.close()
-    return redirect(url_for("inicio"))
+    return redirect(url_for("ver_suscripciones"))
 
 
 @app.post("/suscripciones/<int:id_>/eliminar")
@@ -697,7 +738,7 @@ def eliminar_suscripcion(id_):
     con.execute("DELETE FROM suscripciones WHERE id = ?", (id_,))
     con.commit()
     con.close()
-    return redirect(url_for("inicio"))
+    return redirect(url_for("ver_suscripciones"))
 
 
 if __name__ == "__main__":
