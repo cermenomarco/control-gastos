@@ -100,10 +100,10 @@ h2{font-size:17px;margin:0 0 14px}
 .sub{color:var(--mut);margin:0 0 20px}
 a{color:var(--acc)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:16px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:16px}
 .stats .card{margin:0}
 .lbl{color:var(--mut);font-size:14px}
-.big{font-size:26px;font-weight:600}
+.big{font-size:21px;font-weight:600;overflow-wrap:anywhere}
 form.add{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 input,button,select{font:inherit;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--txt)}
 button.primary{background:var(--acc);border-color:var(--acc);color:#fff;cursor:pointer}
@@ -136,6 +136,8 @@ details h2{margin-top:18px}
     <div class="card"><div class="lbl">Total del mes</div><div class="big">{{ total|peso }}</div></div>
     <div class="card"><div class="lbl">Gastos del mes</div><div class="big">{{ cantidad }}</div></div>
     <div class="card"><div class="lbl">Categoría principal</div><div class="big">{{ por_cat[0][0] if por_cat else '—' }}</div></div>
+    <div class="card"><div class="lbl">Tarjeta principal</div>{% if tarjeta_top %}<div class="big">{{ tarjeta_top[0] }}</div><div class="lbl">{{ tarjeta_top[1]|peso }}</div>{% else %}<div class="big">—</div>{% endif %}</div>
+    <div class="card"><div class="lbl">Banco principal</div>{% if banco_top %}<div class="big">{{ banco_top[0] }}</div><div class="lbl">{{ banco_top[1]|peso }}</div>{% else %}<div class="big">—</div>{% endif %}</div>
   </div>
 
   <div class="card">
@@ -308,12 +310,28 @@ def inicio():
         )
     ]
     bancos = con.execute("SELECT id, nombre FROM bancos ORDER BY nombre").fetchall()
+    fila = con.execute(
+        """SELECT t.tipo, t.ultimos4, SUM(g.monto) FROM gastos g
+           JOIN tarjetas t ON t.id = g.tarjeta_id
+           WHERE g.fecha LIKE ? GROUP BY t.id ORDER BY SUM(g.monto) DESC LIMIT 1""",
+        (mes + "%",),
+    ).fetchone()
+    tarjeta_top = (f"{fila[0]} •••• {fila[1]}", fila[2]) if fila else None
+    # Banco: transferencias desde ese banco + compras con tarjetas de ese banco
+    banco_top = con.execute(
+        """SELECT b.nombre, SUM(g.monto) FROM gastos g
+           LEFT JOIN tarjetas t ON t.id = g.tarjeta_id
+           JOIN bancos b ON b.id = COALESCE(t.banco_id, g.banco_id)
+           WHERE g.fecha LIKE ? GROUP BY b.id ORDER BY SUM(g.monto) DESC LIMIT 1""",
+        (mes + "%",),
+    ).fetchone()
     con.close()
     cats = sorted({f[3] for f in filas} | set(CATEGORIAS))
     return render_template_string(
         PAGINA, mes=mes, total=total, cantidad=cantidad, por_cat=por_cat,
         filas=filas, cats=cats, hoy=date.today().isoformat(),
         tarjetas=tarjetas, bancos=bancos, tipos=TIPOS_TARJETA, medios=MEDIOS,
+        tarjeta_top=tarjeta_top, banco_top=banco_top,
         error=ERRORES.get(request.args.get("error")),
     )
 
