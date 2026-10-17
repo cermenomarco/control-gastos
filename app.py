@@ -362,7 +362,18 @@ details h2{margin-top:18px}
 
   {% if vista in ('inicio', 'gastos') %}
   <div class="card">
-    <h2>{% if vista == 'gastos' %}Todos los gastos{% else %}Últimos gastos · <a href="{{ url_for('ver_gastos') }}">ver todos</a>{% endif %}</h2>
+    <h2>{% if vista == 'gastos' %}Gastos{% else %}Últimos gastos · <a href="{{ url_for('ver_gastos', mes='') }}">ver todos</a>{% endif %}</h2>
+    {% if vista == 'gastos' %}
+    <form class="row" method="get" action="{{ url_for('ver_gastos') }}">
+      <input type="month" name="mes" value="{{ filtros.mes }}" title="Mes">
+      <input type="date" name="dia" value="{{ filtros.dia }}" title="Día">
+      <select name="tarjeta_id"><option value="">Todas las tarjetas</option>{% for tid, etiqueta, modalidad, info in tarjetas %}<option value="{{ tid }}"{% if tid == filtros.tarjeta %} selected{% endif %}>{{ etiqueta }}</option>{% endfor %}</select>
+      <select name="banco_id"><option value="">Todos los bancos</option>{% for bid, nombre in bancos %}<option value="{{ bid }}"{% if bid == filtros.banco %} selected{% endif %}>{{ nombre }}</option>{% endfor %}</select>
+      <button class="primary">Filtrar</button>
+      <span><a href="{{ url_for('ver_gastos') }}">Mes actual</a> · <a href="{{ url_for('ver_gastos', mes='') }}">Todos</a></span>
+    </form>
+    <p class="lbl">{{ filas|length }} gastos · {{ total_filtrado|peso }}</p>
+    {% endif %}
     <div class="wrap"><table>
       <tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Medio</th><th class="num">Monto</th>{% if vista == 'gastos' %}<th></th>{% endif %}</tr>
       {% for id, fecha, monto, cat, desc, medio in (filas if vista == 'gastos' else filas[:5]) %}
@@ -372,9 +383,9 @@ details h2{margin-top:18px}
         <td>{{ desc }}</td>
         <td>{{ medio }}</td>
         <td class="num">{{ monto|peso }}</td>
-        {% if vista == 'gastos' %}<td><form method="post" action="{{ url_for('eliminar', id_=id) }}" onsubmit="return confirm('¿Eliminar este gasto?')"><button class="del" title="Eliminar">✕</button></form></td>{% endif %}
+        {% if vista == 'gastos' %}<td><form method="post" action="{{ url_for('eliminar', id_=id, mes=filtros.mes, dia=filtros.dia, tarjeta_id=filtros.tarjeta, banco_id=filtros.banco) }}" onsubmit="return confirm('¿Eliminar este gasto?')"><button class="del" title="Eliminar">✕</button></form></td>{% endif %}
       </tr>
-      {% else %}<tr><td colspan="6" class="lbl">Sin gastos todavía.</td></tr>{% endfor %}
+      {% else %}<tr><td colspan="6" class="lbl">{% if vista == 'gastos' %}No hay gastos con estos filtros.{% else %}Sin gastos todavía.{% endif %}</td></tr>{% endfor %}
     </table></div>
   </div>
   {% endif %}
@@ -471,6 +482,32 @@ def renderizar(vista):
            GROUP BY categoria ORDER BY SUM(monto) DESC""",
         (mes + "%",),
     ).fetchall()
+    filtros = {"mes": "", "dia": "", "tarjeta": None, "banco": None}
+    clausulas, params = [], []
+    if vista == "gastos":
+        args = request.args
+        filtros["mes"] = args.get("mes", "" if args else mes)  # sin filtros en la URL: mes actual
+        filtros["dia"] = args.get("dia", "")
+        for clave in ("mes", "dia"):
+            try:
+                date.fromisoformat(filtros[clave] + ("-01" if clave == "mes" else ""))
+            except ValueError:
+                filtros[clave] = ""
+        filtros["tarjeta"] = a_int(args.get("tarjeta_id"))
+        filtros["banco"] = a_int(args.get("banco_id"))
+        if filtros["dia"]:  # el día es más específico que el mes
+            clausulas.append("g.fecha = ?")
+            params.append(filtros["dia"])
+        elif filtros["mes"]:
+            clausulas.append("g.fecha LIKE ?")
+            params.append(filtros["mes"] + "%")
+        if filtros["tarjeta"]:
+            clausulas.append("g.tarjeta_id = ?")
+            params.append(filtros["tarjeta"])
+        if filtros["banco"]:  # transferencias desde ese banco + compras con tarjetas de ese banco
+            clausulas.append("COALESCE(t.banco_id, g.banco_id) = ?")
+            params.append(filtros["banco"])
+    donde = "WHERE " + " AND ".join(clausulas) if clausulas else ""
     filas = [
         (id_, fecha, monto, cat, desc, texto_medio(*resto))
         for id_, fecha, monto, cat, desc, *resto in con.execute(
@@ -481,9 +518,11 @@ def renderizar(vista):
                LEFT JOIN tarjetas t ON t.id = g.tarjeta_id
                LEFT JOIN bancos bt ON bt.id = t.banco_id
                LEFT JOIN bancos bg ON bg.id = g.banco_id
-               ORDER BY g.fecha DESC, g.id DESC"""
+               """ + donde + " ORDER BY g.fecha DESC, g.id DESC",
+            params,
         )
     ]
+    total_filtrado = sum(f[2] for f in filas)
     tarjetas, sin_fechas = [], []
     for tid, tipo, ultimos4, banco, modalidad, cierre, venc in con.execute(
         """SELECT t.id, t.tipo, t.ultimos4, b.nombre, t.modalidad, t.dia_cierre, t.dia_vencimiento
@@ -542,7 +581,8 @@ def renderizar(vista):
         filas=filas, cats=cats, hoy=date.today().isoformat(),
         tarjetas=tarjetas, bancos=bancos, tipos=TIPOS_TARJETA, medios=MEDIOS,
         modalidades=MODALIDADES, tarjeta_top=tarjeta_top, banco_top=banco_top,
-        vista=vista, proximos=proximos, sin_fechas=sin_fechas,
+        vista=vista, filtros=filtros, total_filtrado=total_filtrado,
+        proximos=proximos, sin_fechas=sin_fechas,
         suscripciones=suscripciones, total_subs=total_subs, proyeccion=proyeccion_meses,
         error=ERRORES.get(request.args.get("error")),
     )
@@ -623,7 +663,7 @@ def eliminar(id_):
     con.execute("DELETE FROM gastos WHERE id = ?", (id_,))
     con.commit()
     con.close()
-    return redirect(url_for("ver_gastos"))
+    return redirect(url_for("ver_gastos", **{k: request.args.get(k) for k in ("mes", "dia", "tarjeta_id", "banco_id")}))
 
 
 @app.post("/tarjetas")
