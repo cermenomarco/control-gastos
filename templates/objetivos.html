@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block contenido %}
+  {% set pendientes = objetivos|rejectattr('completo')|list %}
+  <div class="stats">
+    <div class="card"><div class="lbl">Objetivos en curso</div><div class="big">{{ pendientes|length }}</div></div>
+    <div class="card"><div class="lbl">Ya cubierto</div><div class="big cobrar">{{ objetivos|sum(attribute='cubierto')|peso }}</div></div>
+    <div class="card"><div class="lbl">Falta cubrir</div><div class="big">{{ objetivos|sum(attribute='falta')|peso }}</div></div>
+  </div>
+
+  {% for o in objetivos %}
+  <div class="card" id="objetivo-{{ o.id }}">
+    <div class="top"><h2>{{ o.nombre }}{% if o.completo %} ✓{% endif %}</h2><b>{{ o.presupuesto|peso }}</b></div>
+    <div class="medidor ok"><i style="width:{{ o.avance }}%"></i></div>
+    <div class="top lbl"><span>Cubierto {{ o.cubierto|peso }} ({{ o.avance|round|int }}%)</span><span>Falta {{ o.falta|peso }}</span></div>
+    {% if o.completo %}<p class="cobrar">¡Objetivo cubierto!</p>
+    {% elif o.fecha_meta %}
+      {% if o.ahorro_mensual %}<p class="lbl">Meta: {{ o.fecha_meta|fecha }} · para llegar, ahorra <b>{{ o.ahorro_mensual|peso }}</b> por mes durante {{ o.meses }} mes{{ 'es' if o.meses > 1 }}.</p>
+      {% else %}<p class="lbl vencida">La fecha meta ({{ o.fecha_meta|fecha }}) ya pasó y falta {{ o.falta|peso }}.</p>{% endif %}
+    {% endif %}
+
+    {% for i in o.lista %}
+    <div class="item-obj{% if i.cubierto %} hecho{% endif %}">
+      <form class="cubrir" method="post" action="{{ url_for('cubrir_item', id_=o.id, item_id=i.id) }}">
+        <button class="marcar" title="{{ 'Volver a pendiente' if i.cubierto else 'Marcar como cubierto' }}">{{ '✓' if i.cubierto else '' }}</button>
+        <span class="nombre">{{ i.nombre }}</span>
+        {% if not i.cubierto %}<input name="real" inputmode="decimal" placeholder="Monto real si fue distinto (opcional)" aria-label="Monto real">{% endif %}
+      </form>
+      {% set distinto = i.cubierto and i.real is not none and i.real != i.estimado %}
+      <span class="monto">{{ (i.real if distinto else i.estimado)|peso }}
+        <form method="post" action="{{ url_for('eliminar_item', id_=o.id, item_id=i.id) }}" style="display:inline" onsubmit="return confirm('¿Eliminar {{ i.nombre }}?')"><button class="del" title="Eliminar">✕</button></form>
+        {% if distinto %}<small class="lbl">(est. {{ i.estimado|peso }})</small>{% endif %}</span>
+    </div>
+    {% else %}<p class="lbl">Agrega lo que necesitas para este objetivo: pasajes, alojamiento, comidas...</p>{% endfor %}
+
+    <form class="row" method="post" action="{{ url_for('agregar_item', id_=o.id) }}">
+      <input name="nombre" placeholder="Ítem (ej: Pasajes)" required>
+      <input name="estimado" placeholder="Monto estimado" inputmode="decimal" required>
+      <button class="primary">Agregar ítem</button>
+    </form>
+    <form method="post" action="{{ url_for('eliminar_objetivo', id_=o.id) }}" onsubmit="return confirm('¿Eliminar el objetivo {{ o.nombre }} y todos sus ítems?')"><button class="del">✕ Eliminar objetivo</button></form>
+  </div>
+  {% endfor %}
+
+  <div class="card">
+    <h2>Nuevo objetivo</h2>
+    <form class="row" method="post" action="{{ url_for('agregar_objetivo') }}">
+      <input name="nombre" placeholder="Nombre (ej: Viaje a Brasil)" required>
+      <label class="campo"><span class="lbl">Fecha meta (opcional)</span><input type="date" name="fecha_meta"></label>
+      <button class="primary">Crear objetivo</button>
+    </form>
+    <p class="lbl">Arma la lista de lo que necesitas con su monto estimado y tacha cada ítem cuando lo tengas cubierto. Si te salió distinto, escribe el monto real antes de tacharlo. Con fecha meta, la app calcula cuánto ahorrar por mes.</p>
+  </div>
+{% endblock %}

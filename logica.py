@@ -17,6 +17,8 @@ ERRORES = {
     "cuotas": "Las cuotas deben ser un número entre 1 y 60.",
     "fijo": "Revisa el gasto fijo: nombre, monto mayor a 0, día de cobro (1 a 31), frecuencia y mes del primer cobro.",
     "prestamo": "Revisa el préstamo: persona, monto mayor a 0, fechas, cuotas (1 a 120) y, si hay interés, un total a devolver mayor al monto.",
+    "objetivo": "Ponle un nombre al objetivo (la fecha meta es opcional).",
+    "item": "Revisa el ítem: nombre y monto estimado mayor a 0 (el monto real, si lo pones, también).",
     "monto_fijo": "Revisa el nuevo monto (mayor a 0) y el mes desde el que rige.",
     "interes": "Si hay interés, indica el total a pagar (mayor al monto).",
     "banco": "El nombre del banco está vacío o ya existe.",
@@ -196,3 +198,21 @@ def uso_limites(limites, proximos):
             "porcentaje": porcentaje, "ancho": min(porcentaje, 100), "nivel": nivel,
         })
     return filas
+
+
+def resumen_objetivo(items, fecha_meta, hoy):
+    """Totales de un objetivo. items: dicts con estimado, real y cubierto.
+    Lo cubierto vale el monto real si se cargó; lo que falta, el estimado.
+    Si hay fecha meta, calcula cuánto ahorrar por mes para llegar (contando el mes actual)."""
+    cubierto = sum((i["real"] if i["real"] is not None else i["estimado"]) for i in items if i["cubierto"])
+    falta = sum(i["estimado"] for i in items if not i["cubierto"])
+    total = cubierto + falta
+    meses = ahorro = None
+    if fecha_meta and falta > 0:
+        meses = (fecha_meta.year * 12 + fecha_meta.month) - (hoy.year * 12 + hoy.month) + 1
+        ahorro = falta / meses if meses > 0 else None
+    return {
+        "presupuesto": sum(i["estimado"] for i in items), "cubierto": cubierto, "falta": falta,
+        "avance": cubierto / total * 100 if total else 0, "meses": meses, "ahorro_mensual": ahorro,
+        "completo": bool(items) and falta == 0,
+    }

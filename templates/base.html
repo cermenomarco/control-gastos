@@ -18,7 +18,8 @@ a{color:var(--acc)}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:16px}
 .stats .card{margin:0}
 .lbl{color:var(--mut);font-size:14px}
-.big{font-size:21px;font-weight:600;overflow-wrap:anywhere}
+.big{font-size:21px;font-weight:600;overflow-wrap:break-word}
+@media (max-width:480px){.big{font-size:18px}}
 form.add{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 input,button,select{font:inherit;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--txt)}
 button.primary{background:var(--acc);border-color:var(--acc);color:#fff;cursor:pointer}
@@ -64,6 +65,15 @@ details h2{margin-top:18px}
 .fijo .del{margin-top:8px}
 .aviso{color:#e0884a}
 .vencida{color:#d64545}
+.item-obj{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.item-obj form.cubrir{display:contents}
+.item-obj .nombre{flex:1;min-width:90px}
+.item-obj .monto{order:2;white-space:nowrap;text-align:right}
+.item-obj .monto small{display:block}
+.item-obj input{order:3;flex-basis:100%;margin-left:40px;padding:6px 8px;font-size:14px}
+.item-obj.hecho .nombre{color:var(--mut);text-decoration:line-through}
+.marcar{background:none;border:1px solid var(--line);border-radius:6px;width:30px;height:30px;cursor:pointer;color:var(--txt);flex:none}
+.item-obj.hecho .marcar{background:#2fa66a;border-color:#2fa66a;color:#fff}
 .campo{display:flex;flex-direction:column;gap:2px}
 .campo .lbl{font-size:12px}
 .serie-prest{background:#9b6bdf}
@@ -79,7 +89,7 @@ tr.pagado td:not(:last-child){color:var(--mut);text-decoration:line-through}
   <h1>Control de gastos</h1>
   <p class="sub">{% if vista == 'inicio' %}Resumen de {{ mes }} · {% endif %}<a href="{{ url_for('salir') }}">Salir</a></p>
   <nav>
-    {% for destino, rotulo in [('inicio', 'Inicio'), ('ver_gastos', 'Gastos'), ('ver_tarjetas', 'Tarjetas'), ('ver_fijos', 'Gastos fijos'), ('ver_prestamos', 'Préstamos'), ('ver_proyeccion', 'Proyección')] %}
+    {% for destino, rotulo in [('inicio', 'Inicio'), ('ver_gastos', 'Gastos'), ('ver_tarjetas', 'Tarjetas'), ('ver_fijos', 'Gastos fijos'), ('ver_prestamos', 'Préstamos'), ('ver_objetivos', 'Objetivos'), ('ver_proyeccion', 'Proyección')] %}
     <a href="{{ url_for(destino) }}"{% if request.endpoint == destino %} class="activa"{% endif %}>{{ rotulo }}</a>
     {% endfor %}
   </nav>

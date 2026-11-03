@@ -31,6 +31,7 @@ from logica import (
     monto_vigente,
     periodo_de,
     proyeccion,
+    resumen_objetivo,
     resumenes_tarjetas,
     sumar_meses,
     texto_medio,
@@ -219,6 +220,14 @@ def renderizar(vista):
         cuotas_por_prestamo.setdefault(pid, []).append(
             {"numero": numero, "vence": date.fromisoformat(vence), "monto": monto, "pagada": bool(pagada)}
         )
+    items_por_objetivo = {}
+    for iid, oid, nombre_i, estimado, real, cubierto in con.execute(
+        "SELECT id, objetivo_id, nombre, estimado, real, cubierto FROM objetivo_items ORDER BY cubierto, id"
+    ):
+        items_por_objetivo.setdefault(oid, []).append(
+            {"id": iid, "nombre": nombre_i, "estimado": estimado, "real": real, "cubierto": bool(cubierto)}
+        )
+    filas_objetivos = con.execute("SELECT id, nombre, fecha_meta FROM objetivos ORDER BY id").fetchall()
     filas_prestamos = con.execute(
         "SELECT id, persona, rol, monto, total, fecha, cuotas, descripcion FROM prestamos ORDER BY fecha DESC, id DESC"
     ).fetchall()
@@ -269,6 +278,13 @@ def renderizar(vista):
             "proxima": pendientes[0] if pendientes else None,
             "vencidas": sum(c["vencida"] for c in cuotas),
         })
+    objetivos = []
+    for oid, nombre_o, meta in filas_objetivos:
+        items = items_por_objetivo.get(oid, [])
+        fecha_meta = date.fromisoformat(meta) if meta else None
+        objetivos.append({"id": oid, "nombre": nombre_o, "fecha_meta": fecha_meta, "lista": items,
+                          **resumen_objetivo(items, fecha_meta, hoy_)})
+    objetivos.sort(key=lambda o: o["completo"])  # los terminados al final
     saldo_rol = {rol: sum(p["pendiente"] for p in lista) for rol, lista in prestamos.items()}
     proyeccion_meses = proyeccion(fijos, proximos, hoy_, impagas)
     cats = sorted({f[3] for f in filas} | set(CATEGORIAS))
@@ -281,7 +297,7 @@ def renderizar(vista):
         proximos=proximos, sin_fechas=sin_fechas, uso_credito=uso_credito,
         fijos=fijos, total_mensual=total_mensual, este_mes=este_mes, mes_actual=mes_actual,
         tipos_fijo=TIPOS_FIJO, frecuencias=FRECUENCIAS, proyeccion=proyeccion_meses,
-        prestamos=prestamos, saldo_rol=saldo_rol, vencidas=vencidas, roles=ROLES,
+        objetivos=objetivos, prestamos=prestamos, saldo_rol=saldo_rol, vencidas=vencidas, roles=ROLES,
         error=ERRORES.get(request.args.get("error")),
     )
 
@@ -304,6 +320,11 @@ def ver_tarjetas():
 @app.route("/prestamos")
 def ver_prestamos():
     return renderizar("prestamos")
+
+
+@app.route("/objetivos")
+def ver_objetivos():
+    return renderizar("objetivos")
 
 
 @app.route("/proyeccion")
@@ -602,6 +623,85 @@ def eliminar_prestamo(id_):
     con.commit()
     con.close()
     return redirect(url_for("ver_prestamos"))
+
+
+@app.post("/objetivos")
+def agregar_objetivo():
+    nombre = request.form.get("nombre", "").strip()
+    meta = request.form.get("fecha_meta", "").strip()
+    try:
+        meta = date.fromisoformat(meta).isoformat() if meta else None
+    except ValueError:
+        meta = ""
+    if not nombre or meta == "":
+        return redirect(url_for("ver_objetivos", error="objetivo"))
+    con = conectar()
+    con.execute("INSERT INTO objetivos (nombre, fecha_meta) VALUES (?, ?)", (nombre, meta))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_objetivos"))
+
+
+@app.post("/objetivos/<int:id_>/eliminar")
+def eliminar_objetivo(id_):
+    con = conectar()
+    con.execute("DELETE FROM objetivos WHERE id = ?", (id_,))
+    con.execute("DELETE FROM objetivo_items WHERE objetivo_id = ?", (id_,))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_objetivos"))
+
+
+def monto_opcional(texto):
+    """'' -> None; un monto válido -> número; inválido -> ValueError."""
+    texto = (texto or "").strip()
+    return a_monto(texto) if texto else None
+
+
+@app.post("/objetivos/<int:id_>/items")
+def agregar_item(id_):
+    nombre = request.form.get("nombre", "").strip()
+    try:
+        estimado = a_monto(request.form.get("estimado", ""))
+    except ValueError:
+        estimado = 0
+    if not nombre or estimado <= 0:
+        return redirect(url_for("ver_objetivos", error="item", _anchor=f"objetivo-{id_}"))
+    con = conectar()
+    con.execute("INSERT INTO objetivo_items (objetivo_id, nombre, estimado) VALUES (?, ?, ?)", (id_, nombre, estimado))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_objetivos", _anchor=f"objetivo-{id_}"))
+
+
+@app.post("/objetivos/<int:id_>/items/<int:item_id>/cubrir")
+def cubrir_item(id_, item_id):
+    """Tacha un ítem como cubierto (con su monto real opcional); si ya lo estaba, lo vuelve a pendiente."""
+    try:
+        real = monto_opcional(request.form.get("real"))
+    except ValueError:
+        real = -1
+    if real is not None and real <= 0:
+        return redirect(url_for("ver_objetivos", error="item", _anchor=f"objetivo-{id_}"))
+    con = conectar()
+    fila = con.execute("SELECT cubierto FROM objetivo_items WHERE id = ? AND objetivo_id = ?", (item_id, id_)).fetchone()
+    if fila:
+        if fila[0]:
+            con.execute("UPDATE objetivo_items SET cubierto = 0, real = NULL WHERE id = ?", (item_id,))
+        else:
+            con.execute("UPDATE objetivo_items SET cubierto = 1, real = ? WHERE id = ?", (real, item_id))
+        con.commit()
+    con.close()
+    return redirect(url_for("ver_objetivos", _anchor=f"objetivo-{id_}"))
+
+
+@app.post("/objetivos/<int:id_>/items/<int:item_id>/eliminar")
+def eliminar_item(id_, item_id):
+    con = conectar()
+    con.execute("DELETE FROM objetivo_items WHERE id = ? AND objetivo_id = ?", (item_id, id_))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_objetivos", _anchor=f"objetivo-{id_}"))
 
 
 if __name__ == "__main__":

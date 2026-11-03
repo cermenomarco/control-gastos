@@ -73,6 +73,19 @@ TABLAS = [
            pagada INTEGER NOT NULL DEFAULT 0,
            PRIMARY KEY (prestamo_id, numero)
        )""",
+    """CREATE TABLE IF NOT EXISTS objetivos (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           nombre TEXT NOT NULL,
+           fecha_meta TEXT
+       )""",
+    """CREATE TABLE IF NOT EXISTS objetivo_items (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           objetivo_id INTEGER NOT NULL,
+           nombre TEXT NOT NULL,
+           estimado REAL NOT NULL,
+           real REAL,                     -- lo que costó de verdad, si fue distinto
+           cubierto INTEGER NOT NULL DEFAULT 0
+       )""",
 ]
 
 # Columnas que se fueron agregando a las tablas después de crearlas
