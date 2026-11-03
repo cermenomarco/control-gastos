@@ -33,6 +33,11 @@ TABLAS = [
            dia_cobro INTEGER NOT NULL,
            tarjeta_id INTEGER
        )""",
+    """CREATE TABLE IF NOT EXISTS resumenes_pagados (
+           tarjeta_id INTEGER NOT NULL,
+           periodo TEXT NOT NULL,
+           PRIMARY KEY (tarjeta_id, periodo)
+       )""",
 ]
 
 # Columnas que se fueron agregando a las tablas después de crearlas
@@ -41,7 +46,7 @@ COLUMNAS = {
         "medio TEXT", "tarjeta_id INTEGER", "banco_id INTEGER",
         "cuotas INTEGER DEFAULT 1", "con_interes INTEGER DEFAULT 0", "total_con_interes REAL",
     ],
-    "tarjetas": ["modalidad TEXT DEFAULT 'credito'", "dia_cierre INTEGER", "dia_vencimiento INTEGER"],
+    "tarjetas": ["modalidad TEXT DEFAULT 'credito'", "dia_cierre INTEGER", "dia_vencimiento INTEGER", "limite REAL"],
 }
 
 

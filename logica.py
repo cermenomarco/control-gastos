@@ -25,6 +25,20 @@ def a_int(valor):
         return None
 
 
+def a_monto(texto):
+    """Convierte un monto escrito a la argentina en número: 1500,50 · 1.500,50 · 1.500.000 · 1500.50.
+    Lanza ValueError si no es un número."""
+    texto = texto.strip().replace(" ", "")
+    if "," in texto:  # la coma es el decimal y los puntos son separadores de miles
+        texto = texto.replace(".", "").replace(",", ".")
+    elif texto.count(".") > 1:  # varios puntos: son separadores de miles
+        texto = texto.replace(".", "")
+    valor = float(texto)
+    if valor != valor or valor in (float("inf"), float("-inf")):
+        raise ValueError(texto)
+    return valor
+
+
 def etiqueta_tarjeta(tipo, ultimos4, banco, modalidad="credito"):
     texto = f"{tipo} {MODALIDADES.get(modalidad, modalidad)} •••• {ultimos4}"
     return f"{texto} · {banco}" if banco else texto
@@ -56,11 +70,12 @@ def fecha_dia(anio, mes, dia):
     return date(anio, mes, min(dia, monthrange(anio, mes)[1]))
 
 
-def resumenes_tarjetas(compras, nombres, hoy):
+def resumenes_tarjetas(compras, nombres, pagados, hoy):
     """Reparte las cuotas de cada compra en el resumen (cierre) que le toca.
     Una compra hasta el día de cierre entra a ese resumen; después, al siguiente.
     El vencimiento es la primera fecha con el día de vencimiento posterior al cierre.
-    Devuelve los resúmenes que aún no vencieron: (tarjeta, cierre, vence, a pagar, intereses)."""
+    pagados: conjunto de (tarjeta_id, "AAAA-MM del cierre") ya marcados como pagados.
+    Devuelve, ordenados por vencimiento, los resúmenes que aún no vencieron (lista de dicts)."""
     acumulado = {}
     for tid, fecha, monto, cuotas, con_interes, total, cierre, venc in compras:
         f = date.fromisoformat(fecha)
@@ -80,10 +95,14 @@ def resumenes_tarjetas(compras, nombres, hoy):
         va, vm = (a, m) if venc > cierre else sumar_meses(a, m, 1)
         vence = fecha_dia(va, vm, venc)
         if vence >= hoy:
-            filas.append((vence, nombres.get(tid, "—"), cierra, pagar, intereses))
-    filas.sort(key=lambda fila: (fila[0], fila[1]))
-    return [(nombre, cierra, vence, pagar, intereses)
-            for vence, nombre, cierra, pagar, intereses in filas]
+            periodo = f"{a:04d}-{m:02d}"
+            filas.append({
+                "tarjeta_id": tid, "tarjeta": nombres.get(tid, "—"), "periodo": periodo,
+                "cierra": cierra, "vence": vence, "a_pagar": pagar, "intereses": intereses,
+                "pagado": (tid, periodo) in pagados,
+            })
+    filas.sort(key=lambda f: (f["vence"], f["tarjeta"]))
+    return filas
 
 
 MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
@@ -91,13 +110,32 @@ MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
 
 
 def proyeccion(suscripciones, proximos, hoy, meses=6):
-    """Por mes: suscripciones (según su día de cobro) + resúmenes de tarjeta (según su vencimiento).
+    """Por mes: suscripciones (según su día de cobro) + resúmenes de tarjeta pendientes (según su vencimiento).
     suscripciones: lista de (monto, dia_cobro). En el mes actual solo cuenta lo que falta cobrar."""
     filas = []
     for k in range(meses):
         anio, mes = sumar_meses(hoy.year, hoy.month, k)
         subs = sum(monto for monto, dia in suscripciones if k > 0 or dia >= hoy.day)
-        tarjetas = sum(pagar for _, _, vence, pagar, _ in proximos
-                       if (vence.year, vence.month) == (anio, mes))
+        tarjetas = sum(p["a_pagar"] for p in proximos
+                       if not p["pagado"] and (p["vence"].year, p["vence"].month) == (anio, mes))
         filas.append((f"{MESES[mes - 1]} {anio}", subs, tarjetas, subs + tarjetas))
+    return filas
+
+
+def uso_limites(limites, proximos):
+    """Uso del límite de cada tarjeta de crédito = lo que falta pagar (resúmenes pendientes que
+    no están marcados como pagados). limites: lista de (tarjeta_id, etiqueta, limite)."""
+    debe = {}
+    for p in proximos:
+        if not p["pagado"]:
+            debe[p["tarjeta_id"]] = debe.get(p["tarjeta_id"], 0.0) + p["a_pagar"]
+    filas = []
+    for tid, etiqueta, limite in limites:
+        usado = debe.get(tid, 0.0)
+        porcentaje = usado / limite * 100
+        nivel = "alto" if porcentaje >= 90 else "medio" if porcentaje >= 70 else "ok"
+        filas.append({
+            "tarjeta": etiqueta, "limite": limite, "usado": usado, "disponible": limite - usado,
+            "porcentaje": porcentaje, "ancho": min(porcentaje, 100), "nivel": nivel,
+        })
     return filas

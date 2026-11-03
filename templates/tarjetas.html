@@ -1,6 +1,33 @@
 {% extends "base.html" %}
 {% block contenido %}
-  <details class="card" open>
+  <div class="card">
+    <h2>Límite de crédito</h2>
+    {% for u in uso_credito %}
+    <div class="bar">
+      <div class="top"><span>{{ u.tarjeta }}</span><span>{{ u.porcentaje|round|int }}% usado</span></div>
+      <div class="medidor {{ u.nivel }}"><i style="width:{{ u.ancho }}%"></i></div>
+      <div class="top lbl"><span>Usado {{ u.usado|peso }} de {{ u.limite|peso }}</span><span>{% if u.disponible >= 0 %}Disponible {{ u.disponible|peso }}{% else %}Excedido en {{ (-u.disponible)|peso }}{% endif %}</span></div>
+    </div>
+    {% else %}<p class="lbl">Carga el límite de tus tarjetas de crédito (en "Mis tarjetas y bancos", más abajo) para ver cuánto llevas usado.</p>{% endfor %}
+    <p class="lbl">Se calcula con lo que todavía falta pagar: compras y cuotas de los resúmenes pendientes. Puede diferir un poco del límite que muestra tu banco.</p>
+  </div>
+
+  <div class="card">
+    <h2>Próximos pagos de tarjetas de crédito</h2>
+    {% if sin_fechas %}<p class="lbl">Falta el cierre y vencimiento de: {{ sin_fechas|join(', ') }}. Guarda la tarjeta de nuevo con los mismos datos para completarlos.</p>{% endif %}
+    {% if proximos %}
+    <div class="wrap"><table>
+      <tr><th>Tarjeta</th><th>Cierra</th><th>Vence</th><th class="num">A pagar</th><th class="num">Intereses</th><th></th></tr>
+      {% for p in proximos %}
+      <tr{% if p.pagado %} class="pagado"{% endif %}><td>{{ p.tarjeta }}</td><td>{{ p.cierra|fecha }}</td><td>{{ p.vence|fecha }}</td><td class="num">{{ p.a_pagar|peso }}</td><td class="num">{{ p.intereses|peso }}</td>
+        <td><form method="post" action="{{ url_for('marcar_resumen', id_=p.tarjeta_id, periodo=p.periodo) }}"{% if not p.pagado %} onsubmit="return confirm('¿Marcar este resumen como pagado?')"{% endif %}><button class="del" title="{% if p.pagado %}Volver a marcarlo como pendiente{% else %}Marcar como pagado{% endif %}">{% if p.pagado %}↩ Deshacer{% else %}✓ Pagado{% endif %}</button></form></td></tr>
+      {% endfor %}
+    </table></div>
+    <p class="lbl">Los resúmenes marcados como pagados no cuentan en el límite usado ni en la proyección.</p>
+    {% else %}<p class="lbl">Cuando cargues compras con tarjeta de crédito, acá ves cuánto pagas en cada vencimiento.</p>{% endif %}
+  </div>
+
+  <details class="card">
     <summary>Mis tarjetas y bancos</summary>
     <h2>Tarjetas</h2>
     {% for tid, etiqueta, modalidad, info in tarjetas %}
@@ -15,8 +42,10 @@
       <select name="modalidad" id="modalidad" onchange="cambiarModalidad()">{% for k, v in modalidades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
       <input name="dia_cierre" id="dia-cierre" type="number" min="1" max="31" placeholder="Día de cierre">
       <input name="dia_vencimiento" id="dia-venc" type="number" min="1" max="31" placeholder="Día de vencimiento">
+      <input name="limite" id="limite" inputmode="decimal" placeholder="Límite (opcional)">
       <button class="primary">Guardar tarjeta</button>
     </form>
+    <p class="lbl">Para corregir una tarjeta, guárdala de nuevo con el mismo tipo y últimos 4 dígitos: se actualiza con lo que completes.</p>
     <h2>Bancos</h2>
     {% for bid, nombre in bancos %}
     <div class="item"><span>{{ nombre }}</span>
@@ -28,20 +57,6 @@
       <button class="primary">Agregar banco</button>
     </form>
   </details>
-
-  <div class="card">
-    <h2>Próximos pagos de tarjetas de crédito</h2>
-    {% if sin_fechas %}<p class="lbl">Falta el cierre y vencimiento de: {{ sin_fechas|join(', ') }}. Guarda la tarjeta de nuevo con los mismos datos para completarlos.</p>{% endif %}
-    {% if proximos %}
-    <div class="wrap"><table>
-      <tr><th>Tarjeta</th><th>Cierra</th><th>Vence</th><th class="num">A pagar</th><th class="num">Intereses</th></tr>
-      {% for nombre, cierre, vence, pagar, interes in proximos %}
-      <tr><td>{{ nombre }}</td><td>{{ cierre|fecha }}</td><td>{{ vence|fecha }}</td><td class="num">{{ pagar|peso }}</td><td class="num">{{ interes|peso }}</td></tr>
-      {% endfor %}
-    </table></div>
-    {% else %}<p class="lbl">Cuando cargues compras con tarjeta de crédito, acá ves cuánto pagas en cada vencimiento.</p>{% endif %}
-  </div>
-
 {% endblock %}
 {% block scripts %}
 <script>
@@ -52,6 +67,7 @@ function cambiarModalidad() {
     el.classList.toggle('hidden', !credito);
     el.required = credito;
   });
+  document.getElementById('limite').classList.toggle('hidden', !credito);
 }
 cambiarModalidad();
 </script>

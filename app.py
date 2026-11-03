@@ -19,10 +19,12 @@ from logica import (
     MODALIDADES,
     TIPOS_TARJETA,
     a_int,
+    a_monto,
     etiqueta_tarjeta,
     proyeccion,
     resumenes_tarjetas,
     texto_medio,
+    uso_limites,
 )
 
 app = Flask(__name__)
@@ -130,19 +132,21 @@ def renderizar(vista):
         )
     ]
     total_filtrado = sum(f[2] for f in filas)
-    tarjetas, sin_fechas = [], []
-    for tid, tipo, ultimos4, banco, modalidad, cierre, venc in con.execute(
-        """SELECT t.id, t.tipo, t.ultimos4, b.nombre, t.modalidad, t.dia_cierre, t.dia_vencimiento
+    tarjetas, sin_fechas, limites = [], [], []
+    for tid, tipo, ultimos4, banco, modalidad, cierre, venc, limite in con.execute(
+        """SELECT t.id, t.tipo, t.ultimos4, b.nombre, t.modalidad, t.dia_cierre, t.dia_vencimiento, t.limite
            FROM tarjetas t LEFT JOIN bancos b ON b.id = t.banco_id ORDER BY t.id"""
     ):
         etiqueta = etiqueta_tarjeta(tipo, ultimos4, banco, modalidad)
         if modalidad != "credito":
             info = ""
         elif cierre and venc:
-            info = f"cierra el {cierre} · vence el {venc}"
+            info = f"cierra el {cierre} · vence el {venc} · " + (f"límite {peso(limite)}" if limite else "sin límite")
         else:
             info = "falta cierre y vencimiento"
             sin_fechas.append(etiqueta)
+        if modalidad == "credito" and limite:
+            limites.append((tid, etiqueta, limite))
         tarjetas.append((tid, etiqueta, modalidad, info))
     bancos = con.execute("SELECT id, nombre FROM bancos ORDER BY nombre").fetchall()
     fila = con.execute(
@@ -174,8 +178,10 @@ def renderizar(vista):
            LEFT JOIN bancos b ON b.id = t.banco_id
            ORDER BY s.dia_cobro, s.nombre"""
     ).fetchall()
+    pagados = set(con.execute("SELECT tarjeta_id, periodo FROM resumenes_pagados").fetchall())
     con.close()
-    proximos = resumenes_tarjetas(compras, {t[0]: t[1] for t in tarjetas}, date.today())
+    proximos = resumenes_tarjetas(compras, {t[0]: t[1] for t in tarjetas}, pagados, date.today())
+    uso_credito = uso_limites(limites, proximos)
     suscripciones = [
         (sid, nombre, monto, dia, etiqueta_tarjeta(tipo, ultimos4, banco, modalidad) if tipo else "—")
         for sid, nombre, monto, dia, tipo, ultimos4, banco, modalidad in subs
@@ -189,7 +195,7 @@ def renderizar(vista):
         tarjetas=tarjetas, bancos=bancos, tipos=TIPOS_TARJETA, medios=MEDIOS,
         modalidades=MODALIDADES, tarjeta_top=tarjeta_top, banco_top=banco_top,
         vista=vista, filtros=filtros, total_filtrado=total_filtrado,
-        proximos=proximos, sin_fechas=sin_fechas,
+        proximos=proximos, sin_fechas=sin_fechas, uso_credito=uso_credito,
         suscripciones=suscripciones, total_subs=total_subs, proyeccion=proyeccion_meses,
         error=ERRORES.get(request.args.get("error")),
     )
@@ -219,7 +225,7 @@ def ver_suscripciones():
 def agregar():
     form = request.form
     try:
-        monto = float(form["monto"].strip().replace(",", "."))
+        monto = a_monto(form["monto"])
         if monto <= 0:
             raise ValueError
         date.fromisoformat(form["fecha"])
@@ -243,7 +249,7 @@ def agregar():
             return redirect(url_for("inicio", error="cuotas"))
         if form.get("con_interes"):
             try:
-                total = float(form.get("total_con_interes", "").strip().replace(",", "."))
+                total = a_monto(form.get("total_con_interes", ""))
             except ValueError:
                 total = 0
             if total <= monto:
@@ -280,29 +286,36 @@ def agregar_tarjeta():
     ultimos4 = form.get("ultimos4", "").strip()
     modalidad = form.get("modalidad")
     cierre, venc = a_int(form.get("dia_cierre")), a_int(form.get("dia_vencimiento"))
+    limite = None
     if modalidad == "debito":
         cierre = venc = None
+    elif form.get("limite", "").strip():
+        try:
+            limite = a_monto(form["limite"])
+        except ValueError:
+            limite = 0
     valida = (
         tipo in TIPOS_TARJETA
         and modalidad in MODALIDADES
         and len(ultimos4) == 4 and ultimos4.isascii() and ultimos4.isdigit()
         and (modalidad == "debito" or (cierre and venc and 1 <= cierre <= 31 and 1 <= venc <= 31))
+        and (limite is None or limite > 0)
     )
     if not valida:
         return redirect(url_for("ver_tarjetas", error="tarjeta"))
     con = conectar()
-    datos = (modalidad, cierre, venc, a_int(form.get("banco_id")))
+    datos = (modalidad, cierre, venc, a_int(form.get("banco_id")), limite)
     existente = con.execute(
         "SELECT id FROM tarjetas WHERE tipo = ? AND ultimos4 = ?", (tipo, ultimos4)
     ).fetchone()
     if existente:  # misma tarjeta (tipo + 4 dígitos): se actualizan sus datos
         con.execute(
-            "UPDATE tarjetas SET modalidad = ?, dia_cierre = ?, dia_vencimiento = ?, banco_id = ? WHERE id = ?",
+            "UPDATE tarjetas SET modalidad = ?, dia_cierre = ?, dia_vencimiento = ?, banco_id = ?, limite = ? WHERE id = ?",
             datos + (existente[0],),
         )
     else:
         con.execute(
-            "INSERT INTO tarjetas (tipo, ultimos4, modalidad, dia_cierre, dia_vencimiento, banco_id) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tarjetas (tipo, ultimos4, modalidad, dia_cierre, dia_vencimiento, banco_id, limite) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (tipo, ultimos4) + datos,
         )
     con.commit()
@@ -322,6 +335,24 @@ def eliminar_tarjeta(id_):
         con.close()
         return redirect(url_for("ver_tarjetas", error="usado"))
     con.execute("DELETE FROM tarjetas WHERE id = ?", (id_,))
+    con.execute("DELETE FROM resumenes_pagados WHERE tarjeta_id = ?", (id_,))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_tarjetas"))
+
+
+@app.post("/tarjetas/<int:id_>/resumen/<periodo>")
+def marcar_resumen(id_, periodo):
+    """Marca un resumen como pagado (libera el límite y lo saca de la proyección). Si ya lo estaba, lo desmarca."""
+    try:
+        date.fromisoformat(periodo + "-01")
+    except ValueError:
+        return redirect(url_for("ver_tarjetas"))
+    con = conectar()
+    if con.execute("SELECT 1 FROM resumenes_pagados WHERE tarjeta_id = ? AND periodo = ?", (id_, periodo)).fetchone():
+        con.execute("DELETE FROM resumenes_pagados WHERE tarjeta_id = ? AND periodo = ?", (id_, periodo))
+    else:
+        con.execute("INSERT INTO resumenes_pagados (tarjeta_id, periodo) VALUES (?, ?)", (id_, periodo))
     con.commit()
     con.close()
     return redirect(url_for("ver_tarjetas"))
@@ -363,7 +394,7 @@ def agregar_suscripcion():
     form = request.form
     nombre = form.get("nombre", "").strip()
     try:
-        monto = float(form.get("monto", "").strip().replace(",", "."))
+        monto = a_monto(form.get("monto", ""))
     except ValueError:
         monto = 0
     dia = a_int(form.get("dia_cobro"))

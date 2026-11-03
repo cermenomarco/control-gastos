@@ -44,6 +44,12 @@ details[open] summary{margin-bottom:14px}
 details h2{margin-top:18px}
 .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:10px 0}
 .item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.medidor{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin:6px 0}
+.medidor i{display:block;height:100%;border-radius:5px}
+.medidor.ok i{background:#2fa66a}
+.medidor.medio i{background:#e0a100}
+.medidor.alto i{background:#d64545}
+tr.pagado td:not(:last-child){color:var(--mut);text-decoration:line-through}
 </style>
 </head>
 <body>
