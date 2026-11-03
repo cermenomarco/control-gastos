@@ -31,7 +31,9 @@ def a_monto(texto):
     texto = texto.strip().replace(" ", "")
     if "," in texto:  # la coma es el decimal y los puntos son separadores de miles
         texto = texto.replace(".", "").replace(",", ".")
-    elif texto.count(".") > 1:  # varios puntos: son separadores de miles
+    elif texto.count(".") > 1 or (
+        texto.count(".") == 1 and len(texto.split(".")[1]) == 3
+    ):  # 1.500.000 o 300.000: los puntos son separadores de miles
         texto = texto.replace(".", "")
     valor = float(texto)
     if valor != valor or valor in (float("inf"), float("-inf")):

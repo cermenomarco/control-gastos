@@ -49,6 +49,17 @@ details h2{margin-top:18px}
 .medidor.ok i{background:#2fa66a}
 .medidor.medio i{background:#e0a100}
 .medidor.alto i{background:#d64545}
+.grafico{display:flex;align-items:flex-end;gap:10px;height:220px;padding-top:22px;border-bottom:1px solid var(--line)}
+.grafico .col{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:0}
+.grafico .valor{font-size:12px;color:var(--mut);white-space:nowrap;margin-bottom:4px}
+.grafico .pila{width:100%;max-width:56px;display:flex;flex-direction:column-reverse;border-radius:6px 6px 0 0;overflow:hidden}
+.grafico .pila i{display:block;width:100%}
+.ejes{display:flex;gap:10px}
+.ejes span{flex:1;text-align:center;font-size:13px;color:var(--mut);padding-top:6px}
+.leyenda{display:flex;gap:16px;flex-wrap:wrap;font-size:14px;margin-top:12px}
+.leyenda span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;background:var(--c)}
+.serie-subs{background:var(--acc)}
+.serie-tarj{background:#e0884a}
 tr.pagado td:not(:last-child){color:var(--mut);text-decoration:line-through}
 </style>
 </head>
@@ -57,7 +68,7 @@ tr.pagado td:not(:last-child){color:var(--mut);text-decoration:line-through}
   <h1>Control de gastos</h1>
   <p class="sub">{% if vista == 'inicio' %}Resumen de {{ mes }} · {% endif %}<a href="{{ url_for('salir') }}">Salir</a></p>
   <nav>
-    {% for destino, rotulo in [('inicio', 'Inicio'), ('ver_gastos', 'Gastos'), ('ver_tarjetas', 'Tarjetas'), ('ver_suscripciones', 'Suscripciones')] %}
+    {% for destino, rotulo in [('inicio', 'Inicio'), ('ver_gastos', 'Gastos'), ('ver_tarjetas', 'Tarjetas'), ('ver_suscripciones', 'Suscripciones'), ('ver_proyeccion', 'Proyección')] %}
     <a href="{{ url_for(destino) }}"{% if request.endpoint == destino %} class="activa"{% endif %}>{{ rotulo }}</a>
     {% endfor %}
   </nav>

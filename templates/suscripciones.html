@@ -21,15 +21,4 @@
     </form>
   </div>
 
-  <div class="card">
-    <h2>Proyección de los próximos 6 meses</h2>
-    <div class="wrap"><table>
-      <tr><th>Mes</th><th class="num">Suscripciones</th><th class="num">Tarjetas de crédito</th><th class="num">Total estimado</th></tr>
-      {% for etiqueta_mes, de_subs, de_tarjetas, de_total in proyeccion %}
-      <tr><td>{{ etiqueta_mes }}</td><td class="num">{{ de_subs|peso }}</td><td class="num">{{ de_tarjetas|peso }}</td><td class="num"><b>{{ de_total|peso }}</b></td></tr>
-      {% endfor %}
-    </table></div>
-    <p class="lbl">Las suscripciones cuentan el mes en que se cobran; las tarjetas, el mes en que vence cada resumen (solo con las compras ya cargadas).</p>
-  </div>
-
 {% endblock %}

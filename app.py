@@ -40,6 +40,18 @@ def peso(valor):
     return "$ " + texto
 
 
+@app.template_filter("corto")
+def corto(valor):
+    # 85400 -> $ 85,4 mil · 1250000 -> $ 1,3 M (para las etiquetas del gráfico)
+    if valor >= 1_000_000:
+        texto = f"{valor / 1_000_000:.1f} M"
+    elif valor >= 1_000:
+        texto = f"{valor / 1_000:.1f} mil"
+    else:
+        texto = f"{valor:.0f}"
+    return "$ " + texto.replace(".0 ", " ").replace(".", ",")
+
+
 @app.template_filter("fecha")
 def fecha_filtro(valor):
     return valor.strftime("%d/%m/%Y")
@@ -214,6 +226,11 @@ def ver_gastos():
 @app.route("/tarjetas")
 def ver_tarjetas():
     return renderizar("tarjetas")
+
+
+@app.route("/proyeccion")
+def ver_proyeccion():
+    return renderizar("proyeccion")
 
 
 @app.route("/suscripciones")
