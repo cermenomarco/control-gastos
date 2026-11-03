@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block contenido %}
+  <div class="stats">
+    <div class="card"><div class="lbl">Se cobra este mes</div><div class="big">{{ este_mes|peso }}</div></div>
+    <div class="card"><div class="lbl">Promedio por mes</div><div class="big">{{ total_mensual|peso }}</div><div class="lbl">bimestrales y anuales repartidos</div></div>
+    <div class="card"><div class="lbl">Gastos fijos</div><div class="big">{{ fijos|length }}</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Mis gastos fijos</h2>
+    {% for f in fijos %}
+    <div class="fijo">
+      <div class="top">
+        <span><b>{{ f.nombre }}</b> <span class="tag" style="background:{{ f.tipo|color }}">{{ f.tipo }}</span></span>
+        <b>{{ f.monto|peso }}</b>
+      </div>
+      <div class="lbl">{{ f.frecuencia_txt }} · día {{ f.dia }}{% if f.proximo %} · próximo cobro {{ f.proximo }}{% endif %}{% if f.tarjeta %} · {{ f.tarjeta }}{% endif %}</div>
+      {% if f.empieza %}<div class="lbl aviso">Empieza en {{ f.empieza|mes }}</div>{% endif %}
+      {% if f.aumento %}<div class="lbl aviso">Pasa a {{ f.aumento[1]|peso }} desde {{ f.aumento[0]|mes }}</div>{% endif %}
+      <details>
+        <summary class="lbl">Actualizar monto{% if f.anteriores %} · historial{% endif %}</summary>
+        <form class="row" method="post" action="{{ url_for('actualizar_monto', id_=f.id) }}">
+          <input name="monto" placeholder="Nuevo monto" inputmode="decimal" required>
+          <input type="month" name="desde" value="{{ mes_actual }}" title="Rige desde" required>
+          <button class="primary">Guardar aumento</button>
+        </form>
+        {% for desde, monto in f.anteriores %}<div class="lbl">Desde {{ desde|mes }}: {{ monto|peso }}</div>{% endfor %}
+        <form method="post" action="{{ url_for('eliminar_fijo', id_=f.id) }}" onsubmit="return confirm('¿Eliminar {{ f.nombre }} y su historial?')"><button class="del">✕ Eliminar este gasto fijo</button></form>
+      </details>
+    </div>
+    {% else %}<p class="lbl">Todavía no cargaste gastos fijos: suscripciones, servicios (luz, gas, internet), impuestos, alquiler...</p>{% endfor %}
+  </div>
+
+  <div class="card">
+    <h2>Agregar gasto fijo</h2>
+    <form class="row" method="post" action="{{ url_for('agregar_fijo') }}">
+      <input name="nombre" placeholder="Nombre (ej: Luz, Netflix, ABL)" required>
+      <select name="tipo">{% for k, v in tipos_fijo.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+      <input name="monto" placeholder="Monto de cada cobro" inputmode="decimal" required>
+      <input name="dia_cobro" type="number" min="1" max="31" placeholder="Día de cobro" required>
+      <select name="frecuencia" id="frecuencia" onchange="cambiarFrecuencia()">{% for k, v in frecuencias.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+      <input type="month" name="mes_inicio" id="mes-inicio" value="{{ mes_actual }}" title="Mes del primer cobro">
+      <select name="tarjeta_id"><option value="">Tarjeta (opcional)</option>{% for tid, etiqueta, modalidad, info in tarjetas %}<option value="{{ tid }}">{{ etiqueta }}</option>{% endfor %}</select>
+      <button class="primary">Agregar</button>
+    </form>
+    <p class="lbl">Si no es mensual, indica el mes del primer cobro para saber cuándo toca cada uno. Cuando aumente, usa "Actualizar monto": los meses anteriores no cambian, y si ya sabes el aumento puedes cargarlo con un mes futuro.</p>
+  </div>
+{% endblock %}
+{% block scripts %}
+<script>
+function cambiarFrecuencia() {
+  var mensual = document.getElementById('frecuencia').value === '1';
+  document.getElementById('mes-inicio').classList.toggle('hidden', mensual);
+}
+cambiarFrecuencia();
+</script>
+{% endblock %}

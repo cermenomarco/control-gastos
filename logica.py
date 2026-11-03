@@ -7,11 +7,15 @@ CATEGORIAS = ["comida", "transporte", "ocio", "hogar", "salud", "otros"]
 TIPOS_TARJETA = ["Visa", "Mastercard", "American Express"]
 MEDIOS = {"tarjeta": "Tarjeta", "transferencia": "Transferencia", "efectivo": "Efectivo"}
 MODALIDADES = {"credito": "Crédito", "debito": "Débito"}
+TIPOS_FIJO = {"suscripcion": "Suscripción", "servicio": "Servicio", "impuesto": "Impuesto",
+              "alquiler": "Alquiler", "otro": "Otro"}
+FRECUENCIAS = {1: "Mensual", 2: "Bimestral", 3: "Trimestral", 6: "Semestral", 12: "Anual"}
 ERRORES = {
     "datos": "Revisa el monto (número mayor a 0), la fecha y el medio de pago.",
     "tarjeta": "Revisa la tarjeta: tipo, 4 dígitos y, si es de crédito, día de cierre y de vencimiento (1 a 31).",
     "cuotas": "Las cuotas deben ser un número entre 1 y 60.",
-    "suscripcion": "Revisa la suscripción: nombre, monto mayor a 0 y día de cobro entre 1 y 31.",
+    "fijo": "Revisa el gasto fijo: nombre, monto mayor a 0, día de cobro (1 a 31), frecuencia y mes del primer cobro.",
+    "monto_fijo": "Revisa el nuevo monto (mayor a 0) y el mes desde el que rige.",
     "interes": "Si hay interés, indica el total a pagar (mayor al monto).",
     "banco": "El nombre del banco está vacío o ya existe.",
     "usado": "No se puede eliminar: tiene gastos o tarjetas asociados.",
@@ -111,13 +115,38 @@ MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
          "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 
 
-def proyeccion(suscripciones, proximos, hoy, meses=6):
-    """Por mes: suscripciones (según su día de cobro) + resúmenes de tarjeta pendientes (según su vencimiento).
-    suscripciones: lista de (monto, dia_cobro). En el mes actual solo cuenta lo que falta cobrar."""
+def periodo_de(anio, mes):
+    return f"{anio:04d}-{mes:02d}"
+
+
+def monto_vigente(montos, periodo):
+    """montos: lista de (desde "AAAA-MM", monto). Devuelve el que rige en ese período, o None si aún no empezó."""
+    vigente = None
+    for desde, monto in sorted(montos):
+        if desde <= periodo:
+            vigente = monto
+    return vigente
+
+
+def cobra_en(fijo, anio, mes):
+    """True si el gasto fijo se cobra ese mes, según su primer mes de cobro y su frecuencia."""
+    ia, im = map(int, fijo["mes_inicio"].split("-"))
+    meses = (anio * 12 + mes) - (ia * 12 + im)
+    return meses >= 0 and meses % fijo["frecuencia"] == 0
+
+
+def proyeccion(fijos, proximos, hoy, meses=6):
+    """Por mes: gastos fijos (según frecuencia, día de cobro y monto vigente) + resúmenes de tarjeta
+    pendientes (según su vencimiento). En el mes actual solo cuenta lo que falta cobrar.
+    fijos: lista de dicts con dia, frecuencia, mes_inicio y montos."""
     filas = []
     for k in range(meses):
         anio, mes = sumar_meses(hoy.year, hoy.month, k)
-        subs = sum(monto for monto, dia in suscripciones if k > 0 or dia >= hoy.day)
+        subs = sum(
+            monto_vigente(f["montos"], periodo_de(anio, mes)) or 0
+            for f in fijos
+            if cobra_en(f, anio, mes) and (k > 0 or f["dia"] >= hoy.day)
+        )
         tarjetas = sum(p["a_pagar"] for p in proximos
                        if not p["pagado"] and (p["vence"].year, p["vence"].month) == (anio, mes))
         filas.append((f"{MESES[mes - 1]} {anio}", subs, tarjetas, subs + tarjetas))

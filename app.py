@@ -15,14 +15,22 @@ from db import conectar
 from logica import (
     CATEGORIAS,
     ERRORES,
+    FRECUENCIAS,
+    MESES,
     MEDIOS,
     MODALIDADES,
+    TIPOS_FIJO,
     TIPOS_TARJETA,
     a_int,
     a_monto,
+    cobra_en,
     etiqueta_tarjeta,
+    fecha_dia,
+    monto_vigente,
+    periodo_de,
     proyeccion,
     resumenes_tarjetas,
+    sumar_meses,
     texto_medio,
     uso_limites,
 )
@@ -50,6 +58,13 @@ def corto(valor):
     else:
         texto = f"{valor:.0f}"
     return "$ " + texto.replace(".0 ", " ").replace(".", ",")
+
+
+@app.template_filter("mes")
+def mes_txt(periodo):
+    # "2026-12" -> "dic 2026"
+    anio, mes = periodo.split("-")
+    return f"{MESES[int(mes) - 1][:3].lower()} {anio}"
 
 
 @app.template_filter("fecha")
@@ -183,23 +198,49 @@ def renderizar(vista):
            WHERE g.medio = 'tarjeta' AND t.modalidad = 'credito'
              AND t.dia_cierre IS NOT NULL AND t.dia_vencimiento IS NOT NULL"""
     ).fetchall()
-    subs = con.execute(
-        """SELECT s.id, s.nombre, s.monto, s.dia_cobro, t.tipo, t.ultimos4, b.nombre, t.modalidad
-           FROM suscripciones s
-           LEFT JOIN tarjetas t ON t.id = s.tarjeta_id
+    montos = {}
+    for fid, desde, monto in con.execute("SELECT fijo_id, desde, monto FROM fijos_montos ORDER BY desde"):
+        montos.setdefault(fid, []).append((desde, monto))
+    filas_fijos = con.execute(
+        """SELECT f.id, f.nombre, f.tipo, f.dia_cobro, f.frecuencia, f.mes_inicio,
+                  t.tipo, t.ultimos4, b.nombre, t.modalidad
+           FROM fijos f
+           LEFT JOIN tarjetas t ON t.id = f.tarjeta_id
            LEFT JOIN bancos b ON b.id = t.banco_id
-           ORDER BY s.dia_cobro, s.nombre"""
+           ORDER BY f.dia_cobro, f.nombre"""
     ).fetchall()
     pagados = set(con.execute("SELECT tarjeta_id, periodo FROM resumenes_pagados").fetchall())
     con.close()
     proximos = resumenes_tarjetas(compras, {t[0]: t[1] for t in tarjetas}, pagados, date.today())
     uso_credito = uso_limites(limites, proximos)
-    suscripciones = [
-        (sid, nombre, monto, dia, etiqueta_tarjeta(tipo, ultimos4, banco, modalidad) if tipo else "—")
-        for sid, nombre, monto, dia, tipo, ultimos4, banco, modalidad in subs
-    ]
-    total_subs = sum(s[2] for s in suscripciones)
-    proyeccion_meses = proyeccion([(s[2], s[3]) for s in suscripciones], proximos, date.today())
+    hoy_ = date.today()
+    mes_actual = periodo_de(hoy_.year, hoy_.month)
+    fijos = []
+    for fid, nombre, tipo_f, dia, frec, inicio, tipo, ultimos4, banco, modalidad in filas_fijos:
+        historial = montos.get(fid, [])
+        fijo = {
+            "id": fid, "nombre": nombre, "tipo": TIPOS_FIJO.get(tipo_f, tipo_f), "dia": dia,
+            "frecuencia": frec, "frecuencia_txt": FRECUENCIAS.get(frec, f"cada {frec} meses"),
+            "mes_inicio": inicio, "montos": historial,
+            "tarjeta": etiqueta_tarjeta(tipo, ultimos4, banco, modalidad) if tipo else "",
+        }
+        # Monto actual: el vigente hoy, o el primero si todavía no empezó a cobrarse
+        vigente = monto_vigente(historial, mes_actual)
+        fijo["monto"] = vigente if vigente is not None else (historial[0][1] if historial else 0)
+        futuros = [(d, m) for d, m in historial if d > mes_actual]
+        fijo["empieza"] = historial[0][0] if vigente is None and historial else None
+        fijo["aumento"] = (futuros[1] if fijo["empieza"] and len(futuros) > 1
+                           else None if fijo["empieza"] else futuros[0] if futuros else None)
+        fijo["anteriores"] = [(d, m) for d, m in historial if d < mes_actual][::-1]
+        for k in range(13):  # próximo cobro dentro del año
+            a, m = sumar_meses(hoy_.year, hoy_.month, k)
+            if cobra_en(fijo, a, m) and (k > 0 or dia >= hoy_.day):
+                fijo["proximo"] = fecha_dia(a, m, dia).strftime("%d/%m/%Y")
+                break
+        fijos.append(fijo)
+    total_mensual = sum(f["monto"] / f["frecuencia"] for f in fijos)
+    este_mes = sum(monto_vigente(f["montos"], mes_actual) or 0 for f in fijos if cobra_en(f, hoy_.year, hoy_.month))
+    proyeccion_meses = proyeccion(fijos, proximos, hoy_)
     cats = sorted({f[3] for f in filas} | set(CATEGORIAS))
     return render_template(
         f"{vista}.html", mes=mes, total=total, cantidad=cantidad, por_cat=por_cat,
@@ -208,7 +249,8 @@ def renderizar(vista):
         modalidades=MODALIDADES, tarjeta_top=tarjeta_top, banco_top=banco_top,
         vista=vista, filtros=filtros, total_filtrado=total_filtrado,
         proximos=proximos, sin_fechas=sin_fechas, uso_credito=uso_credito,
-        suscripciones=suscripciones, total_subs=total_subs, proyeccion=proyeccion_meses,
+        fijos=fijos, total_mensual=total_mensual, este_mes=este_mes, mes_actual=mes_actual,
+        tipos_fijo=TIPOS_FIJO, frecuencias=FRECUENCIAS, proyeccion=proyeccion_meses,
         error=ERRORES.get(request.args.get("error")),
     )
 
@@ -233,9 +275,14 @@ def ver_proyeccion():
     return renderizar("proyeccion")
 
 
+@app.route("/fijos")
+def ver_fijos():
+    return renderizar("fijos")
+
+
 @app.route("/suscripciones")
-def ver_suscripciones():
-    return renderizar("suscripciones")
+def ver_suscripciones():  # dirección vieja: lleva a Gastos fijos
+    return redirect(url_for("ver_fijos"))
 
 
 @app.post("/agregar")
@@ -345,7 +392,7 @@ def eliminar_tarjeta(id_):
     con = conectar()
     usada = con.execute(
         """SELECT (SELECT COUNT(*) FROM gastos WHERE tarjeta_id = ?)
-                + (SELECT COUNT(*) FROM suscripciones WHERE tarjeta_id = ?)""",
+                + (SELECT COUNT(*) FROM fijos WHERE tarjeta_id = ?)""",
         (id_, id_),
     ).fetchone()[0]
     if usada:
@@ -406,34 +453,68 @@ def eliminar_banco(id_):
     return redirect(url_for("ver_tarjetas"))
 
 
-@app.post("/suscripciones")
-def agregar_suscripcion():
+def mes_valido(texto):
+    try:
+        date.fromisoformat(texto + "-01")
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+@app.post("/fijos")
+def agregar_fijo():
     form = request.form
     nombre = form.get("nombre", "").strip()
+    tipo = form.get("tipo")
     try:
         monto = a_monto(form.get("monto", ""))
     except ValueError:
         monto = 0
     dia = a_int(form.get("dia_cobro"))
-    if not nombre or monto <= 0 or not dia or not 1 <= dia <= 31:
-        return redirect(url_for("ver_suscripciones", error="suscripcion"))
+    frecuencia = a_int(form.get("frecuencia"))
+    hoy = date.today()
+    inicio = form.get("mes_inicio", "") if frecuencia != 1 else periodo_de(hoy.year, hoy.month)
+    if (not nombre or tipo not in TIPOS_FIJO or monto <= 0 or not dia or not 1 <= dia <= 31
+            or frecuencia not in FRECUENCIAS or not mes_valido(inicio)):
+        return redirect(url_for("ver_fijos", error="fijo"))
     con = conectar()
-    con.execute(
-        "INSERT INTO suscripciones (nombre, monto, dia_cobro, tarjeta_id) VALUES (?, ?, ?, ?)",
-        (nombre, monto, dia, a_int(form.get("tarjeta_id"))),
+    cur = con.execute(
+        """INSERT INTO fijos (nombre, tipo, dia_cobro, frecuencia, mes_inicio, tarjeta_id)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (nombre, tipo, dia, frecuencia, inicio, a_int(form.get("tarjeta_id"))),
     )
+    con.execute("INSERT INTO fijos_montos (fijo_id, desde, monto) VALUES (?, ?, ?)", (cur.lastrowid, inicio, monto))
     con.commit()
     con.close()
-    return redirect(url_for("ver_suscripciones"))
+    return redirect(url_for("ver_fijos"))
 
 
-@app.post("/suscripciones/<int:id_>/eliminar")
-def eliminar_suscripcion(id_):
+@app.post("/fijos/<int:id_>/monto")
+def actualizar_monto(id_):
+    """Registra un monto nuevo que rige desde el mes indicado; los meses anteriores no cambian."""
+    form = request.form
+    desde = form.get("desde", "")
+    try:
+        monto = a_monto(form.get("monto", ""))
+    except ValueError:
+        monto = 0
+    if monto <= 0 or not mes_valido(desde):
+        return redirect(url_for("ver_fijos", error="monto_fijo"))
     con = conectar()
-    con.execute("DELETE FROM suscripciones WHERE id = ?", (id_,))
+    con.execute("INSERT OR REPLACE INTO fijos_montos (fijo_id, desde, monto) VALUES (?, ?, ?)", (id_, desde, monto))
     con.commit()
     con.close()
-    return redirect(url_for("ver_suscripciones"))
+    return redirect(url_for("ver_fijos"))
+
+
+@app.post("/fijos/<int:id_>/eliminar")
+def eliminar_fijo(id_):
+    con = conectar()
+    con.execute("DELETE FROM fijos WHERE id = ?", (id_,))
+    con.execute("DELETE FROM fijos_montos WHERE fijo_id = ?", (id_,))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_fijos"))
 
 
 if __name__ == "__main__":

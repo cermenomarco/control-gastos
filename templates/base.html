@@ -59,6 +59,10 @@ details h2{margin-top:18px}
 .leyenda{display:flex;gap:16px;flex-wrap:wrap;font-size:14px;margin-top:12px}
 .leyenda span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;background:var(--c)}
 .serie-subs{background:var(--acc)}
+.fijo{padding:12px 0;border-bottom:1px solid var(--line)}
+.fijo details summary{font-weight:400;font-size:14px;margin:6px 0 0}
+.fijo .del{margin-top:8px}
+.aviso{color:#e0884a}
 .serie-tarj{background:#e0884a}
 tr.pagado td:not(:last-child){color:var(--mut);text-decoration:line-through}
 </style>
@@ -68,7 +72,7 @@ tr.pagado td:not(:last-child){color:var(--mut);text-decoration:line-through}
   <h1>Control de gastos</h1>
   <p class="sub">{% if vista == 'inicio' %}Resumen de {{ mes }} · {% endif %}<a href="{{ url_for('salir') }}">Salir</a></p>
   <nav>
-    {% for destino, rotulo in [('inicio', 'Inicio'), ('ver_gastos', 'Gastos'), ('ver_tarjetas', 'Tarjetas'), ('ver_suscripciones', 'Suscripciones'), ('ver_proyeccion', 'Proyección')] %}
+    {% for destino, rotulo in [('inicio', 'Inicio'), ('ver_gastos', 'Gastos'), ('ver_tarjetas', 'Tarjetas'), ('ver_fijos', 'Gastos fijos'), ('ver_proyeccion', 'Proyección')] %}
     <a href="{{ url_for(destino) }}"{% if request.endpoint == destino %} class="activa"{% endif %}>{{ rotulo }}</a>
     {% endfor %}
   </nav>

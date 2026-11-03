@@ -5,6 +5,7 @@ así una base creada con versiones anteriores se actualiza sola.
 """
 import os
 import sqlite3
+from datetime import date
 
 DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gastos.db")
 
@@ -38,6 +39,22 @@ TABLAS = [
            periodo TEXT NOT NULL,
            PRIMARY KEY (tarjeta_id, periodo)
        )""",
+    """CREATE TABLE IF NOT EXISTS fijos (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           nombre TEXT NOT NULL,
+           tipo TEXT NOT NULL,
+           dia_cobro INTEGER NOT NULL,
+           frecuencia INTEGER NOT NULL DEFAULT 1,
+           mes_inicio TEXT NOT NULL,
+           tarjeta_id INTEGER
+       )""",
+    # Historial de montos: cada fila rige desde ese mes (AAAA-MM) hasta el próximo cambio
+    """CREATE TABLE IF NOT EXISTS fijos_montos (
+           fijo_id INTEGER NOT NULL,
+           desde TEXT NOT NULL,
+           monto REAL NOT NULL,
+           PRIMARY KEY (fijo_id, desde)
+       )""",
 ]
 
 # Columnas que se fueron agregando a las tablas después de crearlas
@@ -52,6 +69,9 @@ COLUMNAS = {
 
 def conectar():
     con = sqlite3.connect(DB)
+    habia_fijos = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fijos'"
+    ).fetchone()
     for sql in TABLAS:
         con.execute(sql)
     for tabla, columnas in COLUMNAS.items():
@@ -59,5 +79,22 @@ def conectar():
         for columna in columnas:
             if columna.split()[0] not in existentes:
                 con.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna}")
+    if not habia_fijos:
+        migrar_suscripciones(con)
     con.commit()
     return con
+
+
+def migrar_suscripciones(con):
+    """Una sola vez: pasa las suscripciones de versiones anteriores a gastos fijos (tipo suscripción, mensual)."""
+    mes = date.today().strftime("%Y-%m")
+    for nombre, monto, dia, tarjeta_id in con.execute(
+        "SELECT nombre, monto, dia_cobro, tarjeta_id FROM suscripciones ORDER BY id"
+    ).fetchall():
+        cur = con.execute(
+            """INSERT INTO fijos (nombre, tipo, dia_cobro, frecuencia, mes_inicio, tarjeta_id)
+               VALUES (?, 'suscripcion', ?, 1, ?, ?)""",
+            (nombre, dia, mes, tarjeta_id),
+        )
+        con.execute("INSERT INTO fijos_montos (fijo_id, desde, monto) VALUES (?, ?, ?)",
+                    (cur.lastrowid, mes, monto))
