@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block contenido %}
+  <details class="card" open>
+    <summary>Mis tarjetas y bancos</summary>
+    <h2>Tarjetas</h2>
+    {% for tid, etiqueta, modalidad, info in tarjetas %}
+    <div class="item"><span>{{ etiqueta }} <small class="lbl">{{ info }}</small></span>
+      <form method="post" action="{{ url_for('eliminar_tarjeta', id_=tid) }}" onsubmit="return confirm('¿Eliminar esta tarjeta?')"><button class="del" title="Eliminar">✕</button></form>
+    </div>
+    {% else %}<p class="lbl">Todavía no cargaste tarjetas.</p>{% endfor %}
+    <form class="row" method="post" action="{{ url_for('agregar_tarjeta') }}">
+      <select name="tipo">{% for t in tipos %}<option>{{ t }}</option>{% endfor %}</select>
+      <input name="ultimos4" placeholder="Últimos 4 dígitos" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required>
+      <select name="banco_id"><option value="">Banco (opcional)</option>{% for bid, nombre in bancos %}<option value="{{ bid }}">{{ nombre }}</option>{% endfor %}</select>
+      <select name="modalidad" id="modalidad" onchange="cambiarModalidad()">{% for k, v in modalidades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+      <input name="dia_cierre" id="dia-cierre" type="number" min="1" max="31" placeholder="Día de cierre">
+      <input name="dia_vencimiento" id="dia-venc" type="number" min="1" max="31" placeholder="Día de vencimiento">
+      <button class="primary">Guardar tarjeta</button>
+    </form>
+    <h2>Bancos</h2>
+    {% for bid, nombre in bancos %}
+    <div class="item"><span>{{ nombre }}</span>
+      <form method="post" action="{{ url_for('eliminar_banco', id_=bid) }}" onsubmit="return confirm('¿Eliminar este banco?')"><button class="del" title="Eliminar">✕</button></form>
+    </div>
+    {% else %}<p class="lbl">Todavía no cargaste bancos.</p>{% endfor %}
+    <form class="row" method="post" action="{{ url_for('agregar_banco') }}">
+      <input name="nombre" placeholder="Nombre del banco" required>
+      <button class="primary">Agregar banco</button>
+    </form>
+  </details>
+
+  <div class="card">
+    <h2>Próximos pagos de tarjetas de crédito</h2>
+    {% if sin_fechas %}<p class="lbl">Falta el cierre y vencimiento de: {{ sin_fechas|join(', ') }}. Guarda la tarjeta de nuevo con los mismos datos para completarlos.</p>{% endif %}
+    {% if proximos %}
+    <div class="wrap"><table>
+      <tr><th>Tarjeta</th><th>Cierra</th><th>Vence</th><th class="num">A pagar</th><th class="num">Intereses</th></tr>
+      {% for nombre, cierre, vence, pagar, interes in proximos %}
+      <tr><td>{{ nombre }}</td><td>{{ cierre|fecha }}</td><td>{{ vence|fecha }}</td><td class="num">{{ pagar|peso }}</td><td class="num">{{ interes|peso }}</td></tr>
+      {% endfor %}
+    </table></div>
+    {% else %}<p class="lbl">Cuando cargues compras con tarjeta de crédito, acá ves cuánto pagas en cada vencimiento.</p>{% endif %}
+  </div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function cambiarModalidad() {
+  var credito = document.getElementById('modalidad').value === 'credito';
+  ['dia-cierre', 'dia-venc'].forEach(function (id) {
+    var el = document.getElementById(id);
+    el.classList.toggle('hidden', !credito);
+    el.required = credito;
+  });
+}
+cambiarModalidad();
+</script>
+{% endblock %}

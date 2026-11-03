@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block contenido %}
+  <div class="card">
+    <h2>Suscripciones</h2>
+    {% if suscripciones %}
+    <p class="lbl">{{ suscripciones|length }} activas · {{ total_subs|peso }} por mes</p>
+    <div class="wrap"><table>
+      <tr><th>Nombre</th><th>Día de cobro</th><th>Tarjeta</th><th class="num">Monto</th><th></th></tr>
+      {% for sid, nombre, monto, dia, tarjeta in suscripciones %}
+      <tr><td>{{ nombre }}</td><td>{{ dia }}</td><td>{{ tarjeta }}</td><td class="num">{{ monto|peso }}</td>
+        <td><form method="post" action="{{ url_for('eliminar_suscripcion', id_=sid) }}" onsubmit="return confirm('¿Eliminar esta suscripción?')"><button class="del" title="Eliminar">✕</button></form></td></tr>
+      {% endfor %}
+    </table></div>
+    {% else %}<p class="lbl">Todavía no cargaste suscripciones.</p>{% endif %}
+    <form class="row" method="post" action="{{ url_for('agregar_suscripcion') }}">
+      <input name="nombre" placeholder="Nombre (ej: Netflix)" required>
+      <input name="monto" placeholder="Monto mensual" inputmode="decimal" required>
+      <input name="dia_cobro" type="number" min="1" max="31" placeholder="Día de cobro" required>
+      <select name="tarjeta_id"><option value="">Tarjeta (opcional)</option>{% for tid, etiqueta, modalidad, info in tarjetas %}<option value="{{ tid }}">{{ etiqueta }}</option>{% endfor %}</select>
+      <button class="primary">Agregar</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Proyección de los próximos 6 meses</h2>
+    <div class="wrap"><table>
+      <tr><th>Mes</th><th class="num">Suscripciones</th><th class="num">Tarjetas de crédito</th><th class="num">Total estimado</th></tr>
+      {% for etiqueta_mes, de_subs, de_tarjetas, de_total in proyeccion %}
+      <tr><td>{{ etiqueta_mes }}</td><td class="num">{{ de_subs|peso }}</td><td class="num">{{ de_tarjetas|peso }}</td><td class="num"><b>{{ de_total|peso }}</b></td></tr>
+      {% endfor %}
+    </table></div>
+    <p class="lbl">Las suscripciones cuentan el mes en que se cobran; las tarjetas, el mes en que vence cada resumen (solo con las compras ya cargadas).</p>
+  </div>
+
+{% endblock %}

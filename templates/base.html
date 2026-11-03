@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control de gastos</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--txt:#1d2430;--mut:#6b7585;--line:#e4e7ec;--acc:#2f6fed}
+@media (prefers-color-scheme:dark){:root{--bg:#12151b;--card:#1b2029;--txt:#e8ebf0;--mut:#98a2b3;--line:#2a313d;--acc:#4f7fe8}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--txt)}
+main{max-width:900px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:24px;margin:0 0 4px}
+h2{font-size:17px;margin:0 0 14px}
+.sub{color:var(--mut);margin:0 0 20px}
+a{color:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:16px}
+.stats .card{margin:0}
+.lbl{color:var(--mut);font-size:14px}
+.big{font-size:21px;font-weight:600;overflow-wrap:anywhere}
+form.add{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+input,button,select{font:inherit;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--txt)}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff;cursor:pointer}
+.bar{margin:12px 0}
+.top{display:flex;justify-content:space-between;font-size:14px}
+.track{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:4px}
+.track i{display:block;height:100%;border-radius:4px}
+.wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.num{text-align:right}
+.tag{display:inline-block;padding:2px 10px;border-radius:99px;font-size:13px;color:#fff}
+.del{background:none;border:none;color:var(--mut);cursor:pointer;padding:2px 6px}
+.err{background:#fde8e8;color:#9b1c1c;padding:10px 14px;border-radius:8px;margin-bottom:16px}
+.hidden{display:none!important}
+.chk{display:flex;align-items:center;gap:6px}
+.chk input{width:auto;padding:0}
+nav{display:flex;gap:8px;overflow-x:auto;margin:0 0 20px;padding-bottom:4px}
+nav a{padding:8px 14px;border:1px solid var(--line);border-radius:99px;text-decoration:none;color:var(--txt);background:var(--card);white-space:nowrap}
+nav a.activa{background:var(--acc);border-color:var(--acc);color:#fff}
+summary{cursor:pointer;font-weight:600;font-size:17px}
+details[open] summary{margin-bottom:14px}
+details h2{margin-top:18px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:10px 0}
+.item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Control de gastos</h1>
+  <p class="sub">{% if vista == 'inicio' %}Resumen de {{ mes }} · {% endif %}<a href="{{ url_for('salir') }}">Salir</a></p>
+  <nav>
+    {% for destino, rotulo in [('inicio', 'Inicio'), ('ver_gastos', 'Gastos'), ('ver_tarjetas', 'Tarjetas'), ('ver_suscripciones', 'Suscripciones')] %}
+    <a href="{{ url_for(destino) }}"{% if request.endpoint == destino %} class="activa"{% endif %}>{{ rotulo }}</a>
+    {% endfor %}
+  </nav>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+
+{% block contenido %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>
