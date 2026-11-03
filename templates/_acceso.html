@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}Entrar{% endblock %} · Marquito</title>
+<meta name="theme-color" content="#0F1A12">
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+<link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#0F1A12;color:#F6F9E8;font:16px/1.5 Inter,system-ui,sans-serif}
+main{width:min(360px,100%)}
+form{display:grid;gap:14px}
+.logo{width:170px;height:auto;margin:0 auto 4px;display:block}
+.lema{margin:0 0 8px;color:#A3B0A5;text-align:center}
+h1{font:600 22px Poppins,system-ui,sans-serif;margin:0;text-align:center}
+.ayuda{margin:0;color:#A3B0A5;font-size:14px;text-align:center}
+label{display:grid;gap:6px;font:500 13px Inter;color:#A3B0A5}
+input{font:inherit;font-size:16px;color:#F6F9E8;width:100%;min-height:52px;padding:12px 16px;border-radius:12px;border:1px solid #2E4034;background:#1A2A1E}
+input::placeholder{color:#7F8D82}
+.clave{position:relative}
+.clave input{padding-right:84px}
+.ver{position:absolute;right:6px;bottom:6px;min-height:40px;padding:0 12px;border:none;border-radius:999px;background:none;color:#A3B0A5;font:500 13px Inter;cursor:pointer}
+.ver:hover{color:#F6F9E8}
+.recordar{display:flex;align-items:center;gap:10px;font:400 15px Inter;color:#F6F9E8}
+.recordar input{width:20px;height:20px;min-height:0;accent-color:#C6F135}
+input:focus-visible,button:focus-visible{outline:2px solid #C6F135;outline-offset:2px}
+.btn{min-height:52px;border:none;border-radius:999px;background:#C6F135;color:#0F1A12;font:600 16px Poppins,system-ui,sans-serif;cursor:pointer}
+.err{background:rgba(255,107,74,.12);border:1px solid rgba(255,107,74,.5);color:#F6F9E8;border-radius:12px;padding:10px 14px;font-size:14px}
+.pie{margin-top:20px;text-align:center;color:#7F8D82;font-size:13px}
+</style></head><body>
+<main>
+  <img class="logo" src="{{ url_for('static', filename='marquito-vertical-sobre-oscuro.svg') }}" alt="marquito">
+  {% block contenido %}{% endblock %}
+</main>
+<script>
+document.querySelectorAll('.ver').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var input = b.parentElement.querySelector('input');
+    var mostrar = input.type === 'password';
+    input.type = mostrar ? 'text' : 'password';
+    b.textContent = mostrar ? 'Ocultar' : 'Mostrar';
+    b.setAttribute('aria-pressed', mostrar);
+  });
+});
+</script>
+</body></html>

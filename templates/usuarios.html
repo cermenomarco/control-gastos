@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "_iconos.html" import icono %}
+{% block contenido %}
+  <div class="titulo-pagina">
+    <h1>Usuarios</h1>
+    <p>Cada persona tiene su cuenta y sus propios datos: nadie ve los gastos de otro.</p>
+  </div>
+
+  {% if nueva %}
+  {% set mensaje = 'Hola ' ~ nueva.nombre ~ '! Te ' ~ ('armé una cuenta' if nueva.accion == 'creada' else 'restablecí la contraseña') ~ ' en Marquito para llevar tus gastos.\nEntrá a ' ~ request.host_url ~ '\nUsuario: ' ~ nueva.usuario ~ '\nContraseña temporal: ' ~ nueva.clave ~ '\nAl entrar te va a pedir que la cambies.' %}
+  <section class="card" style="border:2px solid var(--lima)">
+    <div class="cabeza"><h2>{{ 'Cuenta creada' if nueva.accion == 'creada' else 'Contraseña restablecida' }} para {{ nueva.nombre }}</h2></div>
+    <div class="stats" style="margin-bottom:12px">
+      <div class="stat"><div class="lbl">Usuario</div><div class="big">{{ nueva.usuario }}</div></div>
+      <div class="stat"><div class="lbl">Contraseña temporal</div><div class="big" style="font-family:ui-monospace,Menlo,monospace">{{ nueva.clave }}</div></div>
+    </div>
+    <p class="lbl">Anotala o mandala ahora: <b style="color:var(--txt)">no se vuelve a mostrar</b>. Al entrar, {{ nueva.nombre }} la va a tener que cambiar por una propia.</p>
+    <textarea id="mensaje" readonly rows="5" class="mensaje">{{ mensaje }}</textarea>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">
+      <button type="button" class="btn" id="copiar">{{ icono('ok', 16) }} Copiar mensaje</button>
+      <a class="btn sec" href="https://wa.me/?text={{ mensaje|urlencode }}" target="_blank" rel="noopener">Mandar por WhatsApp</a>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <div class="cabeza"><h2>Cuentas</h2><span class="mini">{{ usuarios|length }}</span></div>
+    {% for u in usuarios %}
+    <div class="fila">
+      <span class="avatar">{{ u.nombre[:1]|upper }}</span>
+      <div class="cuerpo">
+        <div class="titulo">{{ u.nombre }}{% if u.id == usuario.id %} <span class="chico">(vos)</span>{% endif %}</div>
+        <div class="detalle">@{{ u.usuario }}{% if u.es_admin %} · administrador{% endif %} · {% if u.ultimo_acceso %}último ingreso {{ u.ultimo_acceso[8:10] }}/{{ u.ultimo_acceso[5:7] }}{% else %}todavía no entró{% endif %}</div>
+        {% if u.debe_cambiar %}<span class="pildora aviso" style="margin-top:4px">Con contraseña temporal</span>{% endif %}
+        {% if u.id != usuario.id %}
+        <div class="acciones">
+          <form method="post" action="{{ url_for('restablecer_usuario', uid=u.id) }}" onsubmit="return confirm('¿Generar una contraseña temporal nueva para {{ u.nombre }}? La actual deja de funcionar.')">
+            <button class="btn sec chico">Restablecer contraseña</button>
+          </form>
+          <form method="post" action="{{ url_for('borrar_usuario', uid=u.id) }}" onsubmit="return confirm('¿Borrar la cuenta de {{ u.nombre }}? Ya no va a poder entrar. Sus datos se guardan como respaldo en el servidor.')">
+            <button class="borrar">{{ icono('cerrar', 14) }} Borrar cuenta</button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <div class="cabeza"><h2>Nueva cuenta</h2></div>
+    <form class="form" method="post" action="{{ url_for('ver_usuarios') }}">
+      <label class="campo"><span>Nombre</span><input name="nombre" value="{{ form.get('nombre', '') if error else '' }}" placeholder="Ej: Mamá" required></label>
+      <label class="campo"><span>Usuario (en minúsculas)</span><input name="usuario" value="{{ form.get('usuario', '') if error else '' }}" placeholder="Ej: mama" autocapitalize="none" spellcheck="false" pattern="[a-z0-9._\-]{3,30}" required></label>
+      <div class="ancho"><button class="btn">{{ icono('mas_uno', 16) }} Crear cuenta</button></div>
+    </form>
+    <p class="lbl" style="margin-bottom:0">La app genera una contraseña temporal que le pasás; al entrar la cambia por una propia. Cada cuenta empieza vacía.</p>
+  </section>
+{% endblock %}
+{% block scripts %}
+<script>
+var boton = document.getElementById('copiar');
+if (boton) boton.addEventListener('click', function () {
+  var texto = document.getElementById('mensaje');
+  (navigator.clipboard ? navigator.clipboard.writeText(texto.value) : Promise.reject()).catch(function () {
+    texto.select(); document.execCommand('copy');
+  }).finally(function () { boton.lastChild.textContent = ' ¡Copiado!'; });
+});
+</script>
+{% endblock %}

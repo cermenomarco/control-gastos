@@ -250,6 +250,15 @@ tr:last-child td{border-bottom:none}
 .cuota{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;font-size:14px;border-bottom:1px dashed var(--line)}
 .cuota.hecha span{color:var(--mut);text-decoration:line-through}
 
+/* ---------- Cuentas ---------- */
+.avatar{display:grid;place-items:center;width:40px;height:40px;border-radius:999px;background:var(--lima);color:var(--tinta);
+  font:600 16px Poppins;text-decoration:none;flex:none}
+.avatar.grande{width:52px;height:52px;font-size:22px}
+.aviso-ok{display:flex;align-items:center;gap:8px;padding:10px 14px;margin-bottom:16px;border-radius:var(--r-control);
+  background:color-mix(in srgb,var(--ok) 14%,var(--card));color:var(--txt)}
+.aviso-ok .ic{color:var(--ok)}
+.mensaje{width:100%;font:14px/1.5 Inter;color:var(--txt);background:var(--suave);border:1px solid var(--line);border-radius:var(--r-control);padding:12px;resize:vertical}
+
 /* ---------- Calendario ---------- */
 .cal-cabeza{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .cal-cabeza h1{margin:0}
@@ -318,10 +327,11 @@ a.evento:hover .titulo{text-decoration:underline}
   </a>
   <div class="acciones">
     <span class="chip-mes">{{ mes_nombre[:3] }}</span>
-    <a class="boton-icono" href="{{ url_for('salir') }}" title="Salir" aria-label="Salir">{{ icono('salir', 18) }}</a>
+    {% if usuario %}<a class="avatar" href="{{ url_for('mi_cuenta') }}" title="{{ usuario.nombre }} · Mi cuenta" aria-label="Mi cuenta ({{ usuario.nombre }})">{{ usuario.nombre[:1]|upper }}</a>{% endif %}
   </div>
 </header>
-<nav class="nav-arriba" aria-label="Secciones">
+{% set sin_menu = usuario and usuario.debe_cambiar %}
+<nav class="nav-arriba{% if sin_menu %} hidden{% endif %}" aria-label="Secciones">
   {% for destino, rotulo, ic in PRINCIPALES + SECUNDARIAS %}
   <a href="{{ url_for(destino) }}"{% if request.endpoint == destino %} class="activa" aria-current="page"{% endif %}>{{ icono(ic, 18) }}{{ rotulo }}</a>
   {% endfor %}
@@ -330,7 +340,7 @@ a.evento:hover .titulo{text-decoration:underline}
   {% if error %}<div class="err" role="alert">{{ icono('alerta', 18) }}<span>{{ error }}</span></div>{% endif %}
 {% block contenido %}{% endblock %}
 </main>
-<nav class="nav-abajo" aria-label="Secciones">
+<nav class="nav-abajo{% if sin_menu %} hidden{% endif %}" aria-label="Secciones">
   {% for destino, rotulo, ic in PRINCIPALES %}
   <a href="{{ url_for(destino) }}"{% if request.endpoint == destino %} class="activa" aria-current="page"{% endif %}><span class="pastilla">{{ icono(ic, 22) }}</span>{{ rotulo }}</a>
   {% endfor %}

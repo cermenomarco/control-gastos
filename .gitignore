@@ -1,2 +1,7 @@
-gastos.db
+# Datos personales: nunca a GitHub
+*.db
+datos/
+usuarios.db
+# Python
 __pycache__/
+.venv/

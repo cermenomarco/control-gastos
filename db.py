@@ -1,4 +1,7 @@
-"""Base de datos SQLite (un solo archivo: gastos.db).
+"""Base de datos SQLite: un archivo por usuario.
+
+Cada persona tiene su propio archivo (el del administrador es gastos.db; el resto, datos/u<id>.db),
+así los datos de uno nunca se mezclan con los de otro. Las cuentas viven aparte, en usuarios.db.
 
 conectar() abre la base y se asegura de que existan todas las tablas y columnas,
 así una base creada con versiones anteriores se actualiza sola.
@@ -7,7 +10,15 @@ import os
 import sqlite3
 from datetime import date
 
-DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gastos.db")
+from flask import g, has_app_context
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+DB = os.path.join(BASE, "gastos.db")  # base del administrador (la de siempre)
+
+
+def ruta_actual():
+    """Archivo de datos del usuario que hizo el pedido (lo fija app.py al validar la sesión)."""
+    return g.get("db_ruta", DB) if has_app_context() else DB
 
 TABLAS = [
     """CREATE TABLE IF NOT EXISTS gastos (
@@ -104,7 +115,9 @@ COLUMNAS = {
 
 
 def conectar():
-    con = sqlite3.connect(DB)
+    ruta = ruta_actual()
+    os.makedirs(os.path.dirname(ruta), exist_ok=True)
+    con = sqlite3.connect(ruta)
     habia_fijos = con.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fijos'"
     ).fetchone()

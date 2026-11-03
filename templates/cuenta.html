@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "_iconos.html" import icono %}
+{% block contenido %}
+  {% if usuario.debe_cambiar %}
+  <div class="titulo-pagina">
+    <h1>¡Hola, {{ usuario.nombre }}!</h1>
+    <p>Antes de empezar, cambiá la contraseña temporal por una tuya.</p>
+  </div>
+  {% else %}
+  <div class="titulo-pagina">
+    <h1>Mi cuenta</h1>
+  </div>
+  <section class="card">
+    <div class="fila">
+      <span class="avatar grande">{{ usuario.nombre[:1]|upper }}</span>
+      <div class="cuerpo">
+        <div class="titulo">{{ usuario.nombre }}</div>
+        <div class="detalle">@{{ usuario.usuario }}{% if usuario.es_admin %} · administrador{% endif %}</div>
+      </div>
+      <a class="btn sec chico" href="{{ url_for('salir') }}">{{ icono('salir', 14) }} Salir</a>
+    </div>
+  </section>
+  {% if usuario.es_admin %}
+  <a class="card fila evento" href="{{ url_for('ver_usuarios') }}" style="display:flex">
+    <span class="ico">{{ icono('usuarios', 18) }}</span>
+    <div class="cuerpo"><div class="titulo">Usuarios</div><div class="detalle">Creá cuentas para tu familia y restablecé contraseñas.</div></div>
+    <span style="color:var(--mut)">{{ icono('flecha', 18) }}</span>
+  </a>
+  {% endif %}
+  {% endif %}
+
+  <section class="card">
+    <div class="cabeza"><h2>{{ 'Elegí tu contraseña' if usuario.debe_cambiar else 'Cambiar contraseña' }}</h2></div>
+    {% if ok %}<div class="aviso-ok" role="status">{{ icono('ok', 16) }} {{ ok }}</div>{% endif %}
+    <form class="form" method="post" style="grid-template-columns:minmax(0,1fr)">
+      <label class="campo"><span>{{ 'Contraseña temporal (la que te pasaron)' if usuario.debe_cambiar else 'Contraseña actual' }}</span><input type="password" name="actual" autocomplete="current-password" required></label>
+      <label class="campo"><span>Nueva contraseña (mínimo 8 caracteres)</span><input type="password" name="nueva" autocomplete="new-password" minlength="8" required></label>
+      <label class="campo"><span>Repetila</span><input type="password" name="nueva2" autocomplete="new-password" minlength="8" required></label>
+      <div><button class="btn">{{ 'Guardar y empezar' if usuario.debe_cambiar else 'Cambiar contraseña' }}</button></div>
+    </form>
+  </section>
+  {% if usuario.debe_cambiar %}<p class="lbl"><a href="{{ url_for('salir') }}">Salir</a></p>{% endif %}
+{% endblock %}

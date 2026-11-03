@@ -10,8 +10,9 @@ import secrets
 from datetime import date, timedelta
 
 from markupsafe import Markup
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, abort, g, redirect, render_template, request, session, url_for
 
+import cuentas
 from db import conectar
 from logica import (
     CATEGORIAS,
@@ -155,33 +156,134 @@ def medidor(apagados, etiqueta=""):
     return Markup(f'<svg viewBox="0 0 100 100" role="img" aria-label="{etiqueta}">{caminos}</svg>')
 
 
+@app.context_processor
+def datos_comunes():
+    return {"usuario": g.get("usuario"), "mes_nombre": MESES[date.today().month - 1]}
+
+
+ABIERTAS = {"login", "static", "configurar"}
+
+
 @app.before_request
 def exigir_login():
-    # Todo requiere sesión, salvo la pantalla de login
-    if request.endpoint in ("login", "static") or session.get("ok"):
+    """Cada pedido: valida la sesión y elige el archivo de datos del usuario."""
+    if request.endpoint == "static":
         return None
-    return redirect(url_for("login"))
+    if not cuentas.hay_usuarios():  # primera vez: crear la cuenta del administrador
+        return None if request.endpoint == "configurar" else redirect(url_for("configurar"))
+    if request.endpoint == "configurar":
+        return redirect(url_for("login"))
+    usuario = cuentas.por_id(session.get("uid"))
+    # La sesión deja de valer si la cuenta se borró o se cambió/restableció la contraseña
+    if not usuario or session.get("ver") != usuario["sesion_ver"]:
+        session.clear()
+        return None if request.endpoint == "login" else redirect(url_for("login"))
+    if request.endpoint == "login":
+        return redirect(url_for("inicio"))
+    g.usuario = usuario
+    g.db_ruta = cuentas.ruta_datos(usuario)
+    if usuario["debe_cambiar"] and request.endpoint not in ("mi_cuenta", "salir"):
+        return redirect(url_for("mi_cuenta"))
+    return None
+
+
+def iniciar_sesion(usuario, recordar=True):
+    session.clear()
+    session["uid"] = usuario["id"]
+    session["ver"] = usuario["sesion_ver"]
+    session.permanent = recordar  # "recordarme": 30 días; si no, hasta cerrar el navegador
+    cuentas.registrar_acceso(usuario["id"])
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    error = False
+    error, nombre_usuario = None, ""
     if request.method == "POST":
-        esperado = os.environ.get("APP_PASSWORD", "").encode()
-        recibido = request.form.get("clave", "").encode()
-        # Si APP_PASSWORD no está configurada, nadie puede entrar
-        if esperado and hmac.compare_digest(recibido, esperado):
-            session.permanent = True
-            session["ok"] = True
+        nombre_usuario = request.form.get("usuario", "")
+        usuario, error = cuentas.verificar(nombre_usuario, request.form.get("clave", ""))
+        if usuario:
+            iniciar_sesion(usuario, bool(request.form.get("recordar")))
             return redirect(url_for("inicio"))
-        error = True
-    return render_template("login.html", error=error)
+    return render_template("login.html", error=error, nombre_usuario=nombre_usuario)
+
+
+@app.route("/configurar", methods=["GET", "POST"])
+def configurar():
+    """Solo la primera vez: crea la cuenta del administrador, que sigue usando gastos.db (tus datos)."""
+    clave_servidor = os.environ.get("APP_PASSWORD", "")
+    error = None if clave_servidor else "Falta APP_PASSWORD en el servidor: sin eso no se puede hacer la configuración inicial."
+    form = request.form
+    if request.method == "POST" and clave_servidor:
+        if not hmac.compare_digest(form.get("clave_servidor", "").encode(), clave_servidor.encode()):
+            error = "La contraseña actual de la app no es correcta."
+        else:
+            error = cuentas.validar_clave(form.get("clave", ""), form.get("clave2", ""))
+        if not error:
+            usuario, error = cuentas.crear(form.get("nombre", ""), form.get("usuario", ""), form["clave"],
+                                           es_admin=True, debe_cambiar=False, archivo="gastos.db")
+            if usuario:
+                iniciar_sesion(usuario)
+                return redirect(url_for("inicio"))
+    return render_template("configurar.html", error=error, form=form)
 
 
 @app.route("/salir")
 def salir():
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.route("/cuenta", methods=["GET", "POST"])
+def mi_cuenta():
+    error = ok = None
+    if request.method == "POST":
+        form = request.form
+        error = cuentas.cambiar_clave(g.usuario["id"], form.get("actual", ""), form.get("nueva", ""), form.get("nueva2", ""))
+        if not error:
+            era_temporal = g.usuario["debe_cambiar"]
+            iniciar_sesion(cuentas.por_id(g.usuario["id"]), session.permanent)  # sigue adentro en este dispositivo
+            if era_temporal:
+                return redirect(url_for("inicio"))
+            g.usuario = cuentas.por_id(g.usuario["id"])
+            ok = "Listo, cambiaste tu contraseña. Se cerró la sesión en tus otros dispositivos."
+    return render_template("cuenta.html", error=error, ok=ok)
+
+
+def solo_admin():
+    if not g.usuario["es_admin"]:
+        abort(404)
+
+
+@app.route("/usuarios", methods=["GET", "POST"])
+def ver_usuarios():
+    """Administración: crear cuentas para la familia con una contraseña temporal."""
+    solo_admin()
+    error = nueva = None
+    if request.method == "POST":
+        clave = cuentas.generar_clave()
+        creado, error = cuentas.crear(request.form.get("nombre", ""), request.form.get("usuario", ""), clave)
+        if creado:
+            nueva = {"nombre": creado["nombre"], "usuario": creado["usuario"], "clave": clave, "accion": "creada"}
+    return render_template("usuarios.html", usuarios=cuentas.todos(), error=error, nueva=nueva, form=request.form)
+
+
+@app.post("/usuarios/<int:uid>/restablecer")
+def restablecer_usuario(uid):
+    solo_admin()
+    destino = cuentas.por_id(uid)
+    if not destino or destino["id"] == g.usuario["id"]:
+        return redirect(url_for("ver_usuarios"))
+    clave = cuentas.restablecer(uid)
+    nueva = {"nombre": destino["nombre"], "usuario": destino["usuario"], "clave": clave, "accion": "restablecida"}
+    return render_template("usuarios.html", usuarios=cuentas.todos(), error=None, nueva=nueva, form={})
+
+
+@app.post("/usuarios/<int:uid>/borrar")
+def borrar_usuario(uid):
+    solo_admin()
+    if uid != g.usuario["id"]:
+        cuentas.borrar(uid)
+    return redirect(url_for("ver_usuarios"))
 
 
 def armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo, filas_prestamos, objetivos):
@@ -902,6 +1004,7 @@ def guardar_presupuesto():
 
 
 if __name__ == "__main__":
-    # Solo para uso local (contraseña: gastos). En el servidor se define APP_PASSWORD.
+    # Solo para uso local: "gastos" es la contraseña de la configuración inicial.
+    # En el servidor se define APP_PASSWORD en el archivo WSGI.
     os.environ.setdefault("APP_PASSWORD", "gastos")
     app.run(debug=True)
