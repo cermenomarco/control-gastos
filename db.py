@@ -98,6 +98,7 @@ COLUMNAS = {
         "medio TEXT", "tarjeta_id INTEGER", "banco_id INTEGER",
         "cuotas INTEGER DEFAULT 1", "con_interes INTEGER DEFAULT 0", "total_con_interes REAL",
     ],
+    "fijos": ["cancelado_en TEXT", "activo_hasta TEXT"],
     "tarjetas": ["modalidad TEXT DEFAULT 'credito'", "dia_cierre INTEGER", "dia_vencimiento INTEGER", "limite REAL"],
 }
 

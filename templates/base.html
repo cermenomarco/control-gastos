@@ -1,6 +1,6 @@
 {%- from "_iconos.html" import icono, ico_categoria -%}
-{%- set PRINCIPALES = [('inicio', 'Inicio', 'inicio'), ('ver_gastos', 'Gastos', 'gastos'), ('ver_tarjetas', 'Tarjetas', 'tarjetas'), ('ver_proyeccion', 'Proyección', 'proyeccion')] -%}
-{%- set SECUNDARIAS = [('ver_fijos', 'Gastos fijos', 'fijos'), ('ver_prestamos', 'Préstamos', 'prestamos'), ('ver_objetivos', 'Objetivos', 'objetivos')] -%}
+{%- set PRINCIPALES = [('inicio', 'Inicio', 'inicio'), ('ver_gastos', 'Gastos', 'gastos'), ('ver_tarjetas', 'Tarjetas', 'tarjetas'), ('ver_calendario', 'Calendario', 'calendario')] -%}
+{%- set SECUNDARIAS = [('ver_proyeccion', 'Proyección', 'proyeccion'), ('ver_fijos', 'Gastos fijos', 'fijos'), ('ver_prestamos', 'Préstamos', 'prestamos'), ('ver_objetivos', 'Objetivos', 'objetivos')] -%}
 <!doctype html>
 <html lang="es">
 <head>
@@ -77,10 +77,19 @@ main{max-width:960px;margin:0 auto;padding:24px 16px 112px}
   .nav-abajo{display:none}
   main{padding-bottom:48px}
   .nav-arriba{display:flex;gap:4px;max-width:960px;margin:12px auto 0;padding:0 16px;overflow-x:auto}
-  .nav-arriba a{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;text-decoration:none;
+  .nav-arriba a{display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;text-decoration:none;
     font:500 14px Inter;color:var(--mut);white-space:nowrap}
   .nav-arriba a:hover{color:var(--txt);background:var(--suave)}
   .nav-arriba a.activa{background:var(--lima);color:var(--tinta)}
+  /* sin barra de desplazamiento visible (en Windows se veía una barra gris) */
+  .nav-arriba{scrollbar-width:none}
+  .nav-arriba::-webkit-scrollbar{display:none}
+}
+/* Ventanas medianas: el menú se compacta (sin íconos) para que entren las 8 secciones en una línea */
+@media (min-width:760px) and (max-width:1099px){
+  .nav-arriba{gap:2px}
+  .nav-arriba a{padding:8px 11px}
+  .nav-arriba a .ic{display:none}
 }
 
 /* ---------- Superficies ---------- */
@@ -240,6 +249,63 @@ tr:last-child td{border-bottom:none}
 .item-obj .monto small{display:block;font:400 12px Inter;color:var(--mut);text-decoration:none}
 .cuota{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;font-size:14px;border-bottom:1px dashed var(--line)}
 .cuota.hecha span{color:var(--mut);text-decoration:line-through}
+
+/* ---------- Calendario ---------- */
+.cal-cabeza{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.cal-cabeza h1{margin:0}
+.cal-controles{display:flex;align-items:center;gap:8px}
+.segmento{display:flex;padding:3px;border:1px solid var(--line);border-radius:999px;background:var(--card)}
+.segmento a{padding:6px 14px;border-radius:999px;text-decoration:none;font:500 13px Inter;color:var(--mut)}
+.segmento a.activo{background:var(--lima);color:var(--tinta);font-weight:600}
+.cal-card{padding:8px}
+.cal-mes{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.cal-sem{text-align:center;font:600 12px Inter;color:var(--mut);padding:8px 0;text-transform:uppercase;letter-spacing:.04em}
+.cal-dia{display:flex;flex-direction:column;align-items:center;gap:4px;min-height:58px;padding:6px 2px;border-radius:var(--r-control);
+  text-decoration:none;color:var(--txt);min-width:0}
+.cal-dia:hover{background:var(--suave)}
+.cal-dia .num{display:grid;place-items:center;width:30px;height:30px;border-radius:999px;font:500 14px Inter}
+.cal-dia.fuera{color:var(--mut);opacity:.55}
+.cal-dia.hoy .num{background:var(--lima);color:var(--tinta);font-weight:700}
+.cal-dia.elegido{background:var(--suave);box-shadow:inset 0 0 0 2px var(--ok)}
+.puntos{display:flex;gap:3px;justify-content:center;flex-wrap:wrap}
+.puntos i{width:6px;height:6px;border-radius:99px}
+.chips-dia{display:none}
+.ev{display:block;width:100%;min-width:0;padding:3px 6px;border-radius:4px 6px 6px 4px;font-size:12px;line-height:1.3;
+  border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);color:var(--txt)}
+.ev-t{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.ev-m{display:block;font-variant-numeric:tabular-nums;color:var(--mut);white-space:nowrap}
+.ev.hecho .ev-t{text-decoration:line-through;color:var(--mut)}
+.ev-mas{font:500 12px Inter;color:var(--mut);padding-left:4px}
+a.evento{text-decoration:none;color:inherit}
+a.evento:hover .titulo{text-decoration:underline}
+.cal-leyenda{margin-top:4px}
+@media (min-width:760px){
+  .cal-card{padding:12px}
+  .cal-dia{align-items:stretch;min-height:118px;padding:6px}
+  .cal-dia .num{width:28px;height:28px;font-size:13px}
+  .cal-dia .puntos{display:none}
+  .chips-dia{display:flex;flex-direction:column;gap:3px}
+}
+/* Semana: en el celular, un día debajo del otro; en pantallas anchas, siete columnas */
+.cal-semana{display:grid;gap:12px;margin-bottom:16px}
+.sem-dia{margin:0;padding:16px}
+.sem-dia.sin-nada{display:flex;align-items:baseline;gap:12px;padding:10px 16px}
+.sem-dia.sin-nada .sem-cabeza{margin:0}
+.sem-dia.sin-nada .vacio{padding:0;font-size:14px}
+.sem-dia.hoy{border:2px solid var(--lima)}
+.sem-cabeza{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;font:500 13px Inter;color:var(--mut);text-transform:uppercase}
+.sem-cabeza b{font:600 20px Poppins;color:var(--txt)}
+.sem-dia.hoy .sem-cabeza b{background:var(--lima);color:var(--tinta);border-radius:999px;padding:0 10px}
+.sem-lista{display:none}
+.sem-ev{text-decoration:none;display:block}
+@media (min-width:760px){
+  .cal-semana{grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+  .sem-dia,.sem-dia.sin-nada{display:block;padding:10px 8px;min-height:220px}
+  .sem-cabeza{flex-direction:column;align-items:center;gap:0}
+  .sem-lista{display:flex;flex-direction:column;gap:4px}
+  .sem-agenda{display:none}
+  .sem-dia .vacio{font-size:13px;text-align:center}
+}
 </style>
 </head>
 <body>

@@ -15,7 +15,8 @@ Abre http://localhost:5000 (contraseña local: `gastos`).
 - **Inicio**: lo gastado en el mes, el medidor de gajos (con tu presupuesto mensual), agregar gasto, categorías y últimos gastos.
 - **Gastos**: lista completa con filtros por mes, día, tarjeta y banco.
 - **Tarjetas**: límite usado, próximos resúmenes (con "pagado") y alta de tarjetas y bancos.
-- **Gastos fijos**: suscripciones, servicios, impuestos y alquiler, con frecuencia e historial de montos.
+- **Gastos fijos**: suscripciones, servicios, impuestos y alquiler, con frecuencia e historial de montos. Al cancelar uno, sigue activo hasta su próximo cobro, que ya no se hace, y queda en "Cancelados".
+- **Calendario**: vista mes y semana con cobros de gastos fijos, cierres y vencimientos de tarjetas, cuotas de préstamos, lo gastado cada día y fechas meta.
 - **Préstamos**: lo que debo y lo que me deben, en cuotas, con o sin interés.
 - **Objetivos**: presupuestos (ej. un viaje) con ítems que se tachan y ahorro mensual sugerido.
 - **Proyección**: gráfico de los próximos 6 meses con fijos, tarjetas y préstamos.

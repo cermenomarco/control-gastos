@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% from "_iconos.html" import icono %}
+{#- tipo de evento -> (ícono, color, rótulo) -#}
+{% set TIPOS = {
+  'resumen': ('tarjetas', 'var(--s2)', 'Vencimiento de tarjeta'),
+  'cierre': ('tarjetas', 'var(--s2)', 'Cierre de tarjeta'),
+  'debo': ('prestamos', 'var(--s3)', 'Cuota que pagás'),
+  'fijo': ('fijos', 'var(--s1)', 'Gasto fijo'),
+  'cobro': ('prestamos', 'var(--ok)', 'Cuota que cobrás'),
+  'gasto': ('gastos', 'var(--mut)', 'Lo que gastaste'),
+  'fin': ('cerrar', 'var(--mut)', 'Baja de un gasto fijo'),
+  'meta': ('objetivos', 'var(--sol)', 'Fecha meta'),
+} %}
+{% set ESTADOS = {'pagado': 'ok', 'pagada': 'ok', 'cobrada': 'ok', 'cobrado': 'neutra', 'vencido': 'alerta', 'vencida': 'alerta', 'sin cobro': 'neutra'} %}
+{% set DIAS_CORTOS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'] %}
+{% set DIAS_LARGOS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'] %}
+{% set MESES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'] %}
+
+{% macro chip(e) -%}
+<span class="ev{% if e.estado in ('pagado', 'pagada', 'cobrada', 'cobrado') %} hecho{% endif %}" style="--c:{{ TIPOS[e.tipo][1] }}">
+  <span class="ev-t">{{ e.titulo }}</span>{% if e.monto %}<span class="ev-m">{{ e.monto|corto }}</span>{% endif %}
+</span>
+{%- endmacro %}
+
+{% macro agenda(dia) -%}
+  {% for e in dia.eventos %}
+  <a class="fila evento" href="{{ e.url }}">
+    <span class="ico" style="background:color-mix(in srgb, {{ TIPOS[e.tipo][1] }} 18%, transparent);color:{{ TIPOS[e.tipo][1] }}">{{ icono(TIPOS[e.tipo][0], 18) }}</span>
+    <div class="cuerpo">
+      <div class="titulo">{{ e.titulo }}</div>
+      <div class="detalle">{{ TIPOS[e.tipo][2] }}{% if e.tipo == 'meta' %} · faltan {{ e.monto|peso }}{% endif %}</div>
+      {% if e.estado in ESTADOS %}<span class="pildora {{ ESTADOS[e.estado] }}" style="margin-top:4px">{{ e.estado|capitalize }}</span>{% endif %}
+    </div>
+    {% if e.monto and e.tipo != 'meta' %}<div class="monto{% if e.tipo == 'cobro' %} ok{% endif %}">{{ '+ ' if e.tipo == 'cobro' }}{{ e.monto|peso }}</div>{% endif %}
+  </a>
+  {% else %}<p class="vacio">Nada para este día.</p>{% endfor %}
+{%- endmacro %}
+
+{% block contenido %}
+  <div class="cal-cabeza">
+    <h1>{{ cal.titulo }}</h1>
+    <div class="cal-controles">
+      <div class="segmento" role="group" aria-label="Vista">
+        <a href="{{ url_for('ver_calendario', vista='mes', fecha=cal.elegido.isoformat(), dia=cal.elegido.isoformat()) }}"{% if cal.modo == 'mes' %} class="activo" aria-current="page"{% endif %}>Mes</a>
+        <a href="{{ url_for('ver_calendario', vista='semana', fecha=cal.elegido.isoformat(), dia=cal.elegido.isoformat()) }}"{% if cal.modo == 'semana' %} class="activo" aria-current="page"{% endif %}>Semana</a>
+      </div>
+      <a class="btn sec chico" href="{{ url_for('ver_calendario', vista=cal.modo) }}">Hoy</a>
+      <a class="boton-icono" href="{{ url_for('ver_calendario', vista=cal.modo, fecha=cal.anterior.isoformat()) }}" aria-label="Anterior"><span style="transform:rotate(180deg);display:grid">{{ icono('flecha', 18) }}</span></a>
+      <a class="boton-icono" href="{{ url_for('ver_calendario', vista=cal.modo, fecha=cal.siguiente.isoformat()) }}" aria-label="Siguiente">{{ icono('flecha', 18) }}</a>
+    </div>
+  </div>
+
+  <div class="chips">
+    <span>{{ 'Este mes' if cal.modo == 'mes' else 'Esta semana' }} salen <b>{{ cal.sale|peso }}</b></span>
+    {% if cal.entra %}<span>Entran <b class="ok">{{ cal.entra|peso }}</b></span>{% endif %}
+  </div>
+
+  {% if cal.modo == 'mes' %}
+  <section class="card cal-card">
+    <div class="cal-mes" role="grid" aria-label="{{ cal.titulo }}">
+      {% for d in DIAS_CORTOS %}<div class="cal-sem" role="columnheader">{{ d }}</div>{% endfor %}
+      {% for dia in cal.dias %}
+      <a class="cal-dia{% if dia.fuera %} fuera{% endif %}{% if dia.hoy %} hoy{% endif %}{% if dia.fecha == cal.elegido %} elegido{% endif %}"
+         href="{{ url_for('ver_calendario', vista='mes', fecha=dia.fecha.isoformat(), dia=dia.fecha.isoformat()) }}"
+         data-dia="{{ dia.fecha.isoformat() }}" role="gridcell"
+         aria-label="{{ DIAS_LARGOS[dia.fecha.weekday()] }} {{ dia.fecha.day }}: {{ dia.eventos|length }} evento{{ 's' if dia.eventos|length != 1 }}">
+        <span class="num">{{ dia.fecha.day }}</span>
+        {% if dia.eventos %}
+        <span class="puntos">{% for e in dia.eventos[:4] %}<i style="background:{{ TIPOS[e.tipo][1] }}"></i>{% endfor %}</span>
+        <span class="chips-dia">
+          {% for e in dia.eventos[:3] %}{{ chip(e) }}{% endfor %}
+          {% if dia.eventos|length > 3 %}<span class="ev-mas">+{{ dia.eventos|length - 3 }} más</span>{% endif %}
+        </span>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    {% for dia in cal.dias %}
+    <div class="agenda-dia{% if dia.fecha != cal.elegido %} hidden{% endif %}" data-agenda="{{ dia.fecha.isoformat() }}">
+      <div class="cabeza"><h2>{{ 'Hoy, ' ~ DIAS_LARGOS[dia.fecha.weekday()]|lower if dia.hoy else DIAS_LARGOS[dia.fecha.weekday()] }} {{ dia.fecha.day }} de {{ MESES_L[dia.fecha.month - 1] }}</h2></div>
+      {{ agenda(dia) }}
+    </div>
+    {% endfor %}
+  </section>
+
+  {% else %}
+  <div class="cal-semana">
+    {% for dia in cal.dias %}
+    <section class="sem-dia card{% if dia.hoy %} hoy{% endif %}{% if not dia.eventos %} sin-nada{% endif %}">
+      <div class="sem-cabeza"><span>{{ DIAS_CORTOS[dia.fecha.weekday()] }}</span><b class="num">{{ dia.fecha.day }}</b></div>
+      {% if dia.eventos %}
+      <div class="sem-lista">{% for e in dia.eventos %}<a href="{{ e.url }}" class="sem-ev">{{ chip(e) }}</a>{% endfor %}</div>
+      <div class="sem-agenda">{{ agenda(dia) }}</div>
+      {% else %}<p class="vacio">Sin movimientos</p>{% endif %}
+    </section>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="leyenda cal-leyenda">
+    {% for clave in ['fijo', 'resumen', 'debo', 'cobro', 'gasto', 'meta'] %}<span><span class="marca-serie" style="background:{{ TIPOS[clave][1] }}"></span>{{ {'fijo': 'Gastos fijos', 'resumen': 'Tarjetas', 'debo': 'Cuotas que pagás', 'cobro': 'Cobros', 'gasto': 'Lo gastado', 'meta': 'Objetivos'}[clave] }}</span>{% endfor %}
+  </div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Tocar un día muestra su detalle sin recargar (si no hay JavaScript, el enlace funciona igual).
+document.querySelectorAll('.cal-dia').forEach(function (celda) {
+  celda.addEventListener('click', function (ev) {
+    if (celda.classList.contains('fuera')) return;  // un día de otro mes cambia de mes
+    ev.preventDefault();
+    var dia = celda.dataset.dia;
+    document.querySelectorAll('.cal-dia.elegido').forEach(function (c) { c.classList.remove('elegido'); });
+    celda.classList.add('elegido');
+    document.querySelectorAll('[data-agenda]').forEach(function (a) { a.classList.toggle('hidden', a.dataset.agenda !== dia); });
+    history.replaceState(null, '', celda.href);
+  });
+});
+</script>
+{% endblock %}

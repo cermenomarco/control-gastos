@@ -27,11 +27,13 @@ from logica import (
     a_monto,
     cobra_en,
     cuotas_prestamo,
+    eventos_calendario,
     etiqueta_tarjeta,
     fecha_dia,
     gajos,
     monto_vigente,
     periodo_de,
+    proximo_cobro,
     proyeccion,
     resumen_objetivo,
     resumenes_tarjetas,
@@ -182,6 +184,65 @@ def salir():
     return redirect(url_for("login"))
 
 
+def armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo, filas_prestamos, objetivos):
+    """Datos de la pestaña Calendario: vista mes o semana, anclada en ?fecha=, con el día elegido en ?dia=."""
+    hoy = date.today()
+    modo = "semana" if request.args.get("vista") == "semana" else "mes"
+    try:
+        ancla = date.fromisoformat(request.args.get("fecha", ""))
+    except ValueError:
+        ancla = hoy
+    if modo == "mes":
+        primero = ancla.replace(day=1)
+        ultimo = fecha_dia(primero.year, primero.month, 31)
+        desde = primero - timedelta(days=primero.weekday())        # lunes de la primera semana
+        hasta = ultimo + timedelta(days=6 - ultimo.weekday())      # domingo de la última
+        anterior = fecha_dia(*sumar_meses(primero.year, primero.month, -1), 1)
+        siguiente = fecha_dia(*sumar_meses(primero.year, primero.month, 1), 1)
+        titulo = f"{MESES[primero.month - 1]} {primero.year}"
+        en_rango = lambda d: d.month == primero.month
+    else:
+        desde = ancla - timedelta(days=ancla.weekday())
+        hasta = desde + timedelta(days=6)
+        anterior, siguiente = desde - timedelta(days=7), desde + timedelta(days=7)
+        mes_a, mes_b = MESES[desde.month - 1][:3].lower(), MESES[hasta.month - 1][:3].lower()
+        titulo = (f"{desde.day} – {hasta.day} {mes_b} {hasta.year}" if desde.month == hasta.month
+                  else f"{desde.day} {mes_a} – {hasta.day} {mes_b} {hasta.year}")
+        en_rango = lambda d: True
+    try:
+        elegido = date.fromisoformat(request.args.get("dia", ""))
+    except ValueError:
+        elegido = hoy if desde <= hoy <= hasta and en_rango(hoy) else (ancla.replace(day=1) if modo == "mes" else desde)
+
+    cortos = {t["id"]: f"{t['tipo']} ••{t['ultimos4']}" for t in tarjetas_det}
+    resumenes = resumenes_tarjetas(compras, cortos, pagados, desde)
+    for r in resumenes:
+        r["corto"] = r["tarjeta"]
+    personas = {pid: (rol, persona) for pid, persona, rol, *_ in filas_prestamos}
+    cuotas = [(personas[pid][0], personas[pid][1], c["vence"], c["monto"], c["pagada"])
+              for pid, lista in cuotas_por_prestamo.items() if pid in personas for c in lista]
+    con = conectar()
+    gastos_por_dia = {
+        date.fromisoformat(f): (n, s) for f, n, s in con.execute(
+            "SELECT fecha, COUNT(*), SUM(monto) FROM gastos WHERE fecha BETWEEN ? AND ? GROUP BY fecha",
+            (desde.isoformat(), hasta.isoformat()))
+    }
+    con.close()
+    eventos = eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_dia, objetivos)
+
+    dias = []
+    d = desde
+    while d <= hasta:
+        dias.append({"fecha": d, "eventos": eventos.get(d, []), "fuera": not en_rango(d), "hoy": d == hoy})
+        d += timedelta(days=1)
+    visibles = [e for dia in dias if not dia["fuera"] for e in dia["eventos"]]
+    sale = sum(e["monto"] or 0 for e in visibles
+               if e["tipo"] in ("fijo", "resumen", "debo") and e["estado"] not in ("pagado", "pagada"))
+    entra = sum(e["monto"] or 0 for e in visibles if e["tipo"] == "cobro" and e["estado"] != "cobrada")
+    return {"modo": modo, "titulo": titulo, "dias": dias, "elegido": elegido, "hoy": hoy,
+            "anterior": anterior, "siguiente": siguiente, "sale": sale, "entra": entra}
+
+
 def renderizar(vista):
     con = conectar()
     mes = date.today().strftime("%Y-%m")
@@ -283,7 +344,7 @@ def renderizar(vista):
         montos.setdefault(fid, []).append((desde, monto))
     filas_fijos = con.execute(
         """SELECT f.id, f.nombre, f.tipo, f.dia_cobro, f.frecuencia, f.mes_inicio,
-                  t.tipo, t.ultimos4, b.nombre, t.modalidad
+                  t.tipo, t.ultimos4, b.nombre, t.modalidad, f.cancelado_en, f.activo_hasta
            FROM fijos f
            LEFT JOIN tarjetas t ON t.id = f.tarjeta_id
            LEFT JOIN bancos b ON b.id = t.banco_id
@@ -314,14 +375,19 @@ def renderizar(vista):
     hoy_ = date.today()
     mes_actual = periodo_de(hoy_.year, hoy_.month)
     fijos = []
-    for fid, nombre, tipo_f, dia, frec, inicio, tipo, ultimos4, banco, modalidad in filas_fijos:
+    for fid, nombre, tipo_f, dia, frec, inicio, tipo, ultimos4, banco, modalidad, cancelado_en, activo_hasta in filas_fijos:
         historial = montos.get(fid, [])
         fijo = {
             "id": fid, "nombre": nombre, "tipo": TIPOS_FIJO.get(tipo_f, tipo_f), "dia": dia,
             "frecuencia": frec, "frecuencia_txt": FRECUENCIAS.get(frec, f"cada {frec} meses"),
             "mes_inicio": inicio, "montos": historial,
             "tarjeta": etiqueta_tarjeta(tipo, ultimos4, banco, modalidad) if tipo else "",
+            # Cancelado: sigue activo hasta la fecha del próximo cobro, que ya no se hace
+            "cancelado": bool(cancelado_en),
+            "cancelado_en": date.fromisoformat(cancelado_en) if cancelado_en else None,
+            "hasta": date.fromisoformat(activo_hasta) if activo_hasta else None,
         }
+        fijo["terminado"] = bool(fijo["hasta"] and fijo["hasta"] <= hoy_)
         # Monto actual: el vigente hoy, o el primero si todavía no empezó a cobrarse
         vigente = monto_vigente(historial, mes_actual)
         fijo["monto"] = vigente if vigente is not None else (historial[0][1] if historial else 0)
@@ -336,7 +402,7 @@ def renderizar(vista):
                 fijo["proximo"] = fecha_dia(a, m, dia).strftime("%d/%m/%Y")
                 break
         fijos.append(fijo)
-    total_mensual = sum(f["monto"] / f["frecuencia"] for f in fijos)
+    total_mensual = sum(f["monto"] / f["frecuencia"] for f in fijos if not f["cancelado"])
     este_mes = sum(monto_vigente(f["montos"], mes_actual) or 0 for f in fijos if cobra_en(f, hoy_.year, hoy_.month))
     prestamos = {"acreedor": [], "deudor": []}
     vencidas = 0
@@ -365,6 +431,9 @@ def renderizar(vista):
     saldo_rol = {rol: sum(p["pendiente"] for p in lista) for rol, lista in prestamos.items()}
     proyeccion_meses = proyeccion(fijos, proximos, hoy_, impagas)
     cats = sorted({f[3] for f in filas} | set(CATEGORIAS))
+    cal = None
+    if vista == "calendario":
+        cal = armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo, filas_prestamos, objetivos)
     return render_template(
         f"{vista}.html", mes=mes, total=total, cantidad=cantidad, por_cat=por_cat, medidor_mes=medidor_mes,
         mes_nombre=MESES[date.today().month - 1],
@@ -375,7 +444,7 @@ def renderizar(vista):
         proximos=proximos, sin_fechas=sin_fechas, uso_credito=uso_credito,
         fijos=fijos, total_mensual=total_mensual, este_mes=este_mes, mes_actual=mes_actual,
         tipos_fijo=TIPOS_FIJO, frecuencias=FRECUENCIAS, proyeccion=proyeccion_meses,
-        objetivos=objetivos, prestamos=prestamos, saldo_rol=saldo_rol, vencidas=vencidas, roles=ROLES,
+        objetivos=objetivos, prestamos=prestamos, saldo_rol=saldo_rol, vencidas=vencidas, roles=ROLES, cal=cal,
         error=ERRORES.get(request.args.get("error")),
     )
 
@@ -403,6 +472,11 @@ def ver_prestamos():
 @app.route("/objetivos")
 def ver_objetivos():
     return renderizar("objetivos")
+
+
+@app.route("/calendario")
+def ver_calendario():
+    return renderizar("calendario")
 
 
 @app.route("/proyeccion")
@@ -637,6 +711,30 @@ def actualizar_monto(id_):
         return redirect(url_for("ver_fijos", error="monto_fijo"))
     con = conectar()
     con.execute("INSERT OR REPLACE INTO fijos_montos (fijo_id, desde, monto) VALUES (?, ?, ?)", (id_, desde, monto))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_fijos"))
+
+
+@app.post("/fijos/<int:id_>/cancelar")
+def cancelar_fijo(id_):
+    """Cancela hoy: queda activo hasta la fecha del próximo cobro, que ya no se hace."""
+    con = conectar()
+    fila = con.execute("SELECT dia_cobro, frecuencia, mes_inicio FROM fijos WHERE id = ?", (id_,)).fetchone()
+    if fila:
+        hoy = date.today()
+        hasta = proximo_cobro({"dia": fila[0], "frecuencia": fila[1], "mes_inicio": fila[2]}, hoy)
+        con.execute("UPDATE fijos SET cancelado_en = ?, activo_hasta = ? WHERE id = ?",
+                    (hoy.isoformat(), hasta.isoformat(), id_))
+        con.commit()
+    con.close()
+    return redirect(url_for("ver_fijos"))
+
+
+@app.post("/fijos/<int:id_>/reactivar")
+def reactivar_fijo(id_):
+    con = conectar()
+    con.execute("UPDATE fijos SET cancelado_en = NULL, activo_hasta = NULL WHERE id = ?", (id_,))
     con.commit()
     con.close()
     return redirect(url_for("ver_fijos"))

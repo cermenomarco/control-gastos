@@ -134,10 +134,25 @@ def monto_vigente(montos, periodo):
 
 
 def cobra_en(fijo, anio, mes):
-    """True si el gasto fijo se cobra ese mes, según su primer mes de cobro y su frecuencia."""
+    """True si el gasto fijo se cobra ese mes, según su primer mes de cobro y su frecuencia.
+    Si está cancelado, no se cobra desde su fecha de fin ("hasta") en adelante."""
     ia, im = map(int, fijo["mes_inicio"].split("-"))
     meses = (anio * 12 + mes) - (ia * 12 + im)
-    return meses >= 0 and meses % fijo["frecuencia"] == 0
+    if meses < 0 or meses % fijo["frecuencia"]:
+        return False
+    hasta = fijo.get("hasta")
+    return not (hasta and fecha_dia(anio, mes, fijo["dia"]) >= hasta)
+
+
+def proximo_cobro(fijo, despues_de):
+    """Primera fecha de cobro estrictamente posterior a `despues_de` (sin mirar si está cancelado).
+    Es la fecha hasta la que sigue activo un gasto fijo que se cancela ese día."""
+    sin_fin = {**fijo, "hasta": None}
+    for k in range(0, 13 * 12):
+        a, m = sumar_meses(despues_de.year, despues_de.month, k)
+        if cobra_en(sin_fin, a, m) and fecha_dia(a, m, fijo["dia"]) > despues_de:
+            return fecha_dia(a, m, fijo["dia"])
+    return despues_de
 
 
 def cuotas_prestamo(total, cuotas, primer_vencimiento):
@@ -231,3 +246,63 @@ def gajos(total, presupuesto):
     queda = presupuesto - total
     return {"gastados": gastados, "libres": GAJOS - gastados, "presupuesto": presupuesto,
             "queda": max(queda, 0), "excedido": max(-queda, 0)}
+
+
+def eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_dia, objetivos):
+    """Todo lo que pasa cada día entre `desde` y `hasta` (inclusive), para el calendario.
+    fijos: dicts de gastos fijos (con montos, dia, frecuencia, mes_inicio, hasta).
+    resumenes: dicts de resumenes_tarjetas (con 'corto', el nombre breve de la tarjeta).
+    cuotas: (rol, persona, vence, monto, pagada). gastos_por_dia: {fecha: (cantidad, total)}.
+    Devuelve {fecha: [evento, ...]}; cada evento es un dict con tipo, titulo, monto, estado y url."""
+    dias = {}
+
+    def sumar(fecha, **evento):
+        if desde <= fecha <= hasta:
+            evento.setdefault("monto", None)
+            evento.setdefault("estado", "")
+            dias.setdefault(fecha, []).append(evento)
+
+    # Gastos fijos: un evento por cobro, con el monto vigente ese mes
+    a, m = desde.year, desde.month
+    while (a, m) <= (hasta.year, hasta.month):
+        for f in fijos:
+            if cobra_en(f, a, m):
+                monto = monto_vigente(f["montos"], periodo_de(a, m))
+                if monto:
+                    fecha = fecha_dia(a, m, f["dia"])
+                    sumar(fecha, tipo="fijo", titulo=f["nombre"], monto=monto,
+                          estado="cobrado" if fecha < hoy else "", url="/fijos")
+        a, m = sumar_meses(a, m, 1)
+    for f in fijos:
+        if f.get("hasta"):
+            sumar(f["hasta"], tipo="fin", titulo=f"Termina {f['nombre']}", estado="sin cobro", url="/fijos")
+
+    # Tarjetas: cierre y vencimiento de cada resumen
+    for r in resumenes:
+        sumar(r["cierra"], tipo="cierre", titulo=f"Cierra {r['corto']}", url="/tarjetas")
+        sumar(r["vence"], tipo="resumen", titulo=f"Vence {r['corto']}", monto=r["a_pagar"],
+              estado="pagado" if r["pagado"] else ("vencido" if r["vence"] < hoy else ""), url="/tarjetas")
+
+    # Préstamos: cuotas que pago y cuotas que cobro
+    for rol, persona, vence, monto, pagada in cuotas:
+        deudor = rol == "deudor"
+        estado = ("pagada" if deudor else "cobrada") if pagada else ("vencida" if vence < hoy else "")
+        sumar(vence, tipo="debo" if deudor else "cobro",
+              titulo=f"Cuota a {persona}" if deudor else f"Te paga {persona}",
+              monto=monto, estado=estado, url="/prestamos")
+
+    # Lo que ya gastaste ese día
+    for fecha, (cantidad, total) in gastos_por_dia.items():
+        sumar(fecha, tipo="gasto", titulo=f"{cantidad} gasto{'s' if cantidad != 1 else ''}", monto=total,
+              url=f"/gastos?dia={fecha.isoformat()}")
+
+    # Fechas meta de objetivos
+    for o in objetivos:
+        if o["fecha_meta"] and not o["completo"]:
+            sumar(o["fecha_meta"], tipo="meta", titulo=f"Meta: {o['nombre']}", monto=o["falta"],
+                  estado="falta", url="/objetivos")
+
+    orden = {"resumen": 0, "debo": 1, "fijo": 2, "cobro": 3, "gasto": 4, "cierre": 5, "fin": 6, "meta": 7}
+    for lista in dias.values():
+        lista.sort(key=lambda e: (orden[e["tipo"]], e["titulo"]))
+    return dias

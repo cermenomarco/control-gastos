@@ -2,9 +2,11 @@
 {% from "_iconos.html" import icono %}
 {% set ICONO_TIPO = {'Suscripción': 'fijos', 'Servicio': 'casa', 'Impuesto': 'gastos', 'Alquiler': 'casa'} %}
 {% block contenido %}
+  {% set activos = fijos|rejectattr('terminado')|list %}
+  {% set terminados = fijos|selectattr('terminado')|list %}
   <div class="titulo-pagina">
     <h1>Gastos fijos</h1>
-    <p>Suscripciones, servicios, impuestos y alquiler: lo que se cobra solo.</p>
+    <p>Suscripciones, servicios, impuestos y alquiler: lo que se cobra solo. Si das de baja algo, cancelalo y queda el registro.</p>
   </div>
 
   <div class="stats">
@@ -13,8 +15,8 @@
   </div>
 
   <section class="card">
-    <div class="cabeza"><h2>Tus gastos fijos</h2><span class="mini">{{ fijos|length }}</span></div>
-    {% for f in fijos %}
+    <div class="cabeza"><h2>Tus gastos fijos</h2><span class="mini">{{ activos|length }}</span></div>
+    {% for f in activos %}
     <details class="plegable" style="border-bottom:1px solid var(--line)">
       <summary>
         <div class="fila" style="flex:1;border:none">
@@ -22,29 +24,61 @@
           <div class="cuerpo">
             <div class="titulo">{{ f.nombre }}</div>
             <div class="detalle">{{ f.tipo }} · {{ f.frecuencia_txt|lower }}{% if f.proximo %} · próximo {{ f.proximo }}{% endif %}{% if f.tarjeta %} · {{ f.tarjeta }}{% endif %}</div>
+            {% if f.cancelado %}<span class="pildora neutra" style="margin-top:4px">Cancelada · activa hasta el {{ f.hasta|fecha_corta }}</span>{% endif %}
             {% if f.empieza %}<span class="pildora neutra" style="margin-top:4px">Empieza en {{ f.empieza|mes }}</span>{% endif %}
             {% if f.aumento %}<span class="pildora aviso" style="margin-top:4px">Pasa a {{ f.aumento[1]|peso }} en {{ f.aumento[0]|mes }}</span>{% endif %}
           </div>
-          <div class="monto">{{ f.monto|peso }}</div>
+          <div class="monto"{% if f.cancelado %} style="color:var(--mut)"{% endif %}>{{ f.monto|peso }}</div>
         </div>
       </summary>
       <div style="padding:0 0 16px 48px">
+        {% if f.cancelado %}
+        <p class="lbl" style="margin:0 0 12px">La cancelaste el {{ f.cancelado_en|fecha_corta }}. La seguís teniendo hasta el {{ f.hasta|fecha_corta }} y ese cobro ya no se hace.</p>
+        <form method="post" action="{{ url_for('reactivar_fijo', id_=f.id) }}" style="margin-bottom:16px"><button class="btn sec chico">{{ icono('deshacer', 14) }} Reactivar</button></form>
+        {% else %}
         <form class="form" method="post" action="{{ url_for('actualizar_monto', id_=f.id) }}">
           <label class="campo"><span>Nuevo monto</span><input name="monto" placeholder="Ej: 18.500" inputmode="decimal" required></label>
           <label class="campo"><span>Desde</span><input type="month" name="desde" value="{{ mes_actual }}" required></label>
           <div><button class="btn chico">Guardar aumento</button></div>
         </form>
+        {% endif %}
         {% if f.anteriores %}
         <p class="lbl" style="margin:12px 0 0">Antes: {% for desde, monto in f.anteriores %}{{ monto|peso }} desde {{ desde|mes }}{{ ' · ' if not loop.last }}{% endfor %}</p>
         {% endif %}
-        <form method="post" action="{{ url_for('eliminar_fijo', id_=f.id) }}" onsubmit="return confirm('¿Borrar {{ f.nombre }} y su historial?')" style="margin-top:16px">
-          <button class="borrar">{{ icono('cerrar', 14) }} Borrar este gasto fijo</button>
-        </form>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:16px">
+          {% if not f.cancelado %}
+          <form method="post" action="{{ url_for('cancelar_fijo', id_=f.id) }}" onsubmit="return confirm('¿Cancelar {{ f.nombre }}? La seguís teniendo hasta el próximo cobro, que ya no se hace.')">
+            <button class="borrar">{{ icono('cerrar', 14) }} Cancelar {{ 'suscripción' if f.tipo == 'Suscripción' else 'gasto fijo' }}</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('eliminar_fijo', id_=f.id) }}" onsubmit="return confirm('¿Borrar {{ f.nombre }} y todo su historial? Si solo la diste de baja, mejor cancelala.')">
+            <button class="borrar">Borrar del todo</button>
+          </form>
+        </div>
       </div>
     </details>
     {% else %}<p class="vacio">Todavía no cargaste gastos fijos. Sumá suscripciones, la luz, internet, el alquiler...</p>{% endfor %}
-    {% if fijos %}<p class="lbl" style="margin-bottom:0">Tocá uno para cargarle un aumento: los meses anteriores no cambian, y si ya sabés que aumenta, ponele un mes futuro.</p>{% endif %}
+    {% if activos %}<p class="lbl" style="margin-bottom:0">Tocá uno para cargarle un aumento: los meses anteriores no cambian, y si ya sabés que aumenta, ponele un mes futuro.</p>{% endif %}
   </section>
+
+  {% if terminados %}
+  <details class="card plegable">
+    <summary><h2 style="margin:0">Cancelados <span class="mini">{{ terminados|length }}</span></h2></summary>
+    {% for f in terminados %}
+    <div class="fila">
+      <span class="ico neutro">{{ icono(ICONO_TIPO.get(f.tipo, 'etiqueta'), 18) }}</span>
+      <div class="cuerpo">
+        <div class="titulo">{{ f.nombre }}</div>
+        <div class="detalle">{{ f.tipo }} · {{ f.monto|peso }} · terminó el {{ f.hasta|fecha_corta }}{% if f.hasta.year != f.cancelado_en.year %} de {{ f.hasta.year }}{% endif %}</div>
+        <div class="acciones">
+          <form method="post" action="{{ url_for('reactivar_fijo', id_=f.id) }}"><button class="btn sec chico">{{ icono('deshacer', 14) }} Reactivar</button></form>
+          <form method="post" action="{{ url_for('eliminar_fijo', id_=f.id) }}" onsubmit="return confirm('¿Borrar {{ f.nombre }} y su historial?')"><button class="borrar">Borrar</button></form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </details>
+  {% endif %}
 
   <details class="card plegable"{% if not fijos or request.args.get('error') == 'fijo' %} open{% endif %}>
     <summary><h2 style="margin:0">Agregar gasto fijo</h2></summary>
