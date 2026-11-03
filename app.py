@@ -1,4 +1,4 @@
-"""Control de gastos: aplicación web (Flask).
+"""Marquito: control de gastos personal (Flask).
 
 Uso local:  python app.py   y abre http://localhost:5000
 Archivos:   app.py (rutas) · db.py (base de datos) · logica.py (cálculos y constantes)
@@ -9,6 +9,7 @@ import os
 import secrets
 from datetime import date, timedelta
 
+from markupsafe import Markup
 from flask import Flask, redirect, render_template, request, session, url_for
 
 from db import conectar
@@ -28,6 +29,7 @@ from logica import (
     cuotas_prestamo,
     etiqueta_tarjeta,
     fecha_dia,
+    gajos,
     monto_vigente,
     periodo_de,
     proyeccion,
@@ -46,8 +48,11 @@ app.config.update(SESSION_COOKIE_SAMESITE="Lax")
 
 @app.template_filter("peso")
 def peso(valor):
-    # 1500.5 -> $ 1.500,50
-    texto = f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    # Como pide la marca: punto de miles y sin decimales salvo que importen.
+    # 184250 -> $ 184.250 · 1500.5 -> $ 1.500,50
+    valor = round(valor or 0, 2)
+    formato = ",.0f" if valor == int(valor) else ",.2f"
+    texto = f"{valor:{formato}}".replace(",", "X").replace(".", ",").replace("X", ".")
     return "$ " + texto
 
 
@@ -70,14 +75,82 @@ def mes_txt(periodo):
     return f"{MESES[int(mes) - 1][:3].lower()} {anio}"
 
 
+@app.template_filter("dias_hasta")
+def dias_hasta(valor):
+    return (valor - date.today()).days
+
+
+@app.template_filter("fecha_corta")
+def fecha_corta(valor):
+    # 2026-12-05 -> "5 dic"
+    return f"{valor.day} {MESES[valor.month - 1][:3].lower()}"
+
+
 @app.template_filter("fecha")
 def fecha_filtro(valor):
     return valor.strftime("%d/%m/%Y")
 
 
-@app.template_filter("color")
-def color(categoria):
-    return f"hsl({sum(map(ord, categoria)) * 37 % 360}, 65%, 50%)"
+DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+
+
+@app.template_filter("dia")
+def dia_txt(texto):
+    """'2026-11-03' -> 'Hoy' / 'Ayer' / 'lun 2 nov' (encabezados de la lista de gastos)."""
+    f = date.fromisoformat(texto)
+    diferencia = (date.today() - f).days
+    if diferencia == 0:
+        return "Hoy"
+    if diferencia == 1:
+        return "Ayer"
+    texto = f"{DIAS[f.weekday()]} {f.day} {MESES[f.month - 1][:3].lower()}"
+    return texto if f.year == date.today().year else f"{texto} {f.year}"
+
+
+# Los 8 gajos del símbolo (del brandbook), con el agujero central del medidor.
+GAJO_PATHS = [
+    "M54.81 10.79A39.5 39.5 0 0 1 74.32 18.87L64.78 31.09A24 24 0 0 0 52.92 26.18Z",
+    "M81.13 25.68A39.5 39.5 0 0 1 89.21 45.19L73.82 47.08A24 24 0 0 0 68.91 35.22Z",
+    "M89.21 54.81A39.5 39.5 0 0 1 81.13 74.32L68.91 64.78A24 24 0 0 0 73.82 52.92Z",
+    "M74.32 81.13A39.5 39.5 0 0 1 54.81 89.21L52.92 73.82A24 24 0 0 0 64.78 68.91Z",
+    "M45.19 89.21A39.5 39.5 0 0 1 25.68 81.13L35.22 68.91A24 24 0 0 0 47.08 73.82Z",
+    "M18.87 74.32A39.5 39.5 0 0 1 10.79 54.81L26.18 52.92A24 24 0 0 0 31.09 64.78Z",
+    "M10.79 45.19A39.5 39.5 0 0 1 18.87 25.68L31.09 35.22A24 24 0 0 0 26.18 47.08Z",
+    "M25.68 18.87A39.5 39.5 0 0 1 45.19 10.79L47.08 26.18A24 24 0 0 0 35.22 31.09Z",
+]
+
+
+SIMBOLO_PATHS = [
+    ("M54.81 10.79A39.5 39.5 0 0 1 74.32 18.87L58.00 39.76A13 13 0 0 0 51.58 37.10Z", 1),
+    ("M81.13 25.68A39.5 39.5 0 0 1 89.21 45.19L62.90 48.42A13 13 0 0 0 60.24 42.00Z", 0.28),
+    ("M89.21 54.81A39.5 39.5 0 0 1 81.13 74.32L60.24 58.00A13 13 0 0 0 62.90 51.58Z", 1),
+    ("M74.32 81.13A39.5 39.5 0 0 1 54.81 89.21L51.58 62.90A13 13 0 0 0 58.00 60.24Z", 1),
+    ("M45.19 89.21A39.5 39.5 0 0 1 25.68 81.13L42.00 60.24A13 13 0 0 0 48.42 62.90Z", 1),
+    ("M18.87 74.32A39.5 39.5 0 0 1 10.79 54.81L37.10 51.58A13 13 0 0 0 39.76 58.00Z", 1),
+    ("M10.79 45.19A39.5 39.5 0 0 1 18.87 25.68L39.76 42.00A13 13 0 0 0 37.10 48.42Z", 1),
+    ("M25.68 18.87A39.5 39.5 0 0 1 45.19 10.79L48.42 37.10A13 13 0 0 0 42.00 39.76Z", 1),
+]
+
+
+@app.template_global()
+def simbolo(clase="simbolo"):
+    """El símbolo de Marquito (rodaja con el gajo que falta), en el color del texto que lo rodea."""
+    caminos = "".join(
+        f'<path d="{d}" fill="currentColor" stroke="currentColor" stroke-width="5" stroke-linejoin="round" opacity="{o}"/>'
+        for d, o in SIMBOLO_PATHS
+    )
+    return Markup(f'<svg class="{clase}" viewBox="0 0 100 100" aria-hidden="true">{caminos}</svg>')
+
+
+@app.template_global()
+def medidor(apagados, etiqueta=""):
+    """SVG del medidor de gajos: los primeros `apagados` (desde arriba a la derecha) quedan al 22%."""
+    caminos = "".join(
+        f'<path d="{d}" fill="currentColor" stroke="currentColor" stroke-width="5" '
+        f'stroke-linejoin="round" opacity="{0.22 if k < apagados else 1}"/>'
+        for k, d in enumerate(GAJO_PATHS)
+    )
+    return Markup(f'<svg viewBox="0 0 100 100" role="img" aria-label="{etiqueta}">{caminos}</svg>')
 
 
 @app.before_request
@@ -162,7 +235,7 @@ def renderizar(vista):
         )
     ]
     total_filtrado = sum(f[2] for f in filas)
-    tarjetas, sin_fechas, limites = [], [], []
+    tarjetas, sin_fechas, limites, tarjetas_det = [], [], [], []
     for tid, tipo, ultimos4, banco, modalidad, cierre, venc, limite in con.execute(
         """SELECT t.id, t.tipo, t.ultimos4, b.nombre, t.modalidad, t.dia_cierre, t.dia_vencimiento, t.limite
            FROM tarjetas t LEFT JOIN bancos b ON b.id = t.banco_id ORDER BY t.id"""
@@ -178,6 +251,8 @@ def renderizar(vista):
         if modalidad == "credito" and limite:
             limites.append((tid, etiqueta, limite))
         tarjetas.append((tid, etiqueta, modalidad, info))
+        tarjetas_det.append({"id": tid, "tipo": tipo, "ultimos4": ultimos4, "banco": banco, "modalidad": modalidad,
+                             "cierre": cierre, "vence": venc, "limite": limite, "etiqueta": etiqueta})
     bancos = con.execute("SELECT id, nombre FROM bancos ORDER BY nombre").fetchall()
     fila = con.execute(
         """SELECT t.tipo, t.ultimos4, SUM(g.monto) FROM gastos g
@@ -186,6 +261,8 @@ def renderizar(vista):
         (mes + "%",),
     ).fetchone()
     tarjeta_top = (f"{fila[0]} •••• {fila[1]}", fila[2]) if fila else None
+    presupuesto = con.execute("SELECT valor FROM ajustes WHERE clave = 'presupuesto'").fetchone()
+    medidor_mes = gajos(total, float(presupuesto[0]) if presupuesto else None)
     # Banco: transferencias desde ese banco + compras con tarjetas de ese banco
     banco_top = con.execute(
         """SELECT b.nombre, SUM(g.monto) FROM gastos g
@@ -289,10 +366,11 @@ def renderizar(vista):
     proyeccion_meses = proyeccion(fijos, proximos, hoy_, impagas)
     cats = sorted({f[3] for f in filas} | set(CATEGORIAS))
     return render_template(
-        f"{vista}.html", mes=mes, total=total, cantidad=cantidad, por_cat=por_cat,
+        f"{vista}.html", mes=mes, total=total, cantidad=cantidad, por_cat=por_cat, medidor_mes=medidor_mes,
+        mes_nombre=MESES[date.today().month - 1],
         filas=filas, cats=cats, hoy=date.today().isoformat(),
         tarjetas=tarjetas, bancos=bancos, tipos=TIPOS_TARJETA, medios=MEDIOS,
-        modalidades=MODALIDADES, tarjeta_top=tarjeta_top, banco_top=banco_top,
+        modalidades=MODALIDADES, tarjetas_det=tarjetas_det, tarjeta_top=tarjeta_top, banco_top=banco_top,
         vista=vista, filtros=filtros, total_filtrado=total_filtrado,
         proximos=proximos, sin_fechas=sin_fechas, uso_credito=uso_credito,
         fijos=fijos, total_mensual=total_mensual, este_mes=este_mes, mes_actual=mes_actual,
@@ -702,6 +780,27 @@ def eliminar_item(id_, item_id):
     con.commit()
     con.close()
     return redirect(url_for("ver_objetivos", _anchor=f"objetivo-{id_}"))
+
+
+@app.post("/presupuesto")
+def guardar_presupuesto():
+    """Presupuesto mensual para el medidor de gajos del inicio. Vacío lo borra."""
+    texto = request.form.get("presupuesto", "").strip()
+    con = conectar()
+    if not texto:
+        con.execute("DELETE FROM ajustes WHERE clave = 'presupuesto'")
+    else:
+        try:
+            valor = a_monto(texto)
+        except ValueError:
+            valor = 0
+        if valor <= 0:
+            con.close()
+            return redirect(url_for("inicio", error="presupuesto"))
+        con.execute("INSERT OR REPLACE INTO ajustes (clave, valor) VALUES ('presupuesto', ?)", (str(valor),))
+    con.commit()
+    con.close()
+    return redirect(url_for("inicio"))
 
 
 if __name__ == "__main__":

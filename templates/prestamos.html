@@ -1,62 +1,81 @@
 {% extends "base.html" %}
+{% from "_iconos.html" import icono %}
 {% macro lista(rol, titulo, verbo, vacio) %}
-  <div class="card">
-    <h2>{{ titulo }} · {{ saldo_rol.get(rol, 0)|peso }} pendiente</h2>
+  <section class="card">
+    <div class="cabeza"><h2>{{ titulo }}</h2><span class="mini">{{ saldo_rol.get(rol, 0)|peso }} pendiente</span></div>
     {% for p in prestamos.get(rol, []) %}
-    <div class="fijo">
-      <div class="top"><span><b>{{ p.persona }}</b>{% if p.descripcion %} · {{ p.descripcion }}{% endif %}</span><b>{{ p.pendiente|peso }}</b></div>
-      <div class="lbl">Prestado {{ p.monto|peso }} el {{ p.fecha|fecha }} · {% if p.intereses > 0 %}devuelve {{ p.total|peso }} ({{ p.intereses|peso }} de interés){% else %}sin interés{% endif %} · {{ p.pagadas }}/{{ p.cuotas|length }} cuotas {{ verbo }}s</div>
-      {% if p.vencidas %}<div class="lbl vencida">{{ p.vencidas }} cuota{{ 's' if p.vencidas > 1 }} vencida{{ 's' if p.vencidas > 1 }}</div>
-      {% elif p.proxima %}<div class="lbl">Próxima: {{ p.proxima.monto|peso }} el {{ p.proxima.vence|fecha }}</div>
-      {% else %}<div class="lbl cobrar">Saldado</div>{% endif %}
-      <details>
-        <summary class="lbl">Ver cuotas</summary>
+    <details class="plegable" style="border-bottom:1px solid var(--line)">
+      <summary>
+        <div class="fila" style="flex:1;border:none">
+          <span class="ico{% if not p.proxima %} neutro{% endif %}">{{ icono('prestamos', 18) }}</span>
+          <div class="cuerpo">
+            <div class="titulo">{{ p.persona }}{% if p.descripcion %} <span class="chico">· {{ p.descripcion }}</span>{% endif %}</div>
+            <div class="detalle">{{ p.pagadas }} de {{ p.cuotas|length }} cuotas {{ verbo }}s{% if p.proxima and not p.vencidas %} · próxima {{ p.proxima.monto|peso }} el {{ p.proxima.vence|fecha_corta }}{% endif %}</div>
+            {% if p.vencidas %}<span class="pildora alerta" style="margin-top:4px">{{ icono('alerta', 12) }} {{ p.vencidas }} cuota{{ 's' if p.vencidas > 1 }} vencida{{ 's' if p.vencidas > 1 }}</span>
+            {% elif not p.proxima %}<span class="pildora ok" style="margin-top:4px">{{ icono('ok', 12) }} Saldado</span>{% endif %}
+          </div>
+          <div class="monto">{{ p.pendiente|peso }}</div>
+        </div>
+      </summary>
+      <div style="padding:0 0 16px 48px">
+        <p class="lbl" style="margin:0 0 8px">{{ p.monto|peso }} el {{ p.fecha|fecha }} · {% if p.intereses > 0 %}se devuelven {{ p.total|peso }} ({{ p.intereses|peso }} de interés){% else %}sin interés{% endif %}</p>
         {% for c in p.cuotas %}
-        <div class="cuota{% if c.pagada %} pagada{% endif %}">
-          <span{% if c.vencida %} class="vencida"{% endif %}>{{ c.numero }}. {{ c.vence|fecha }} · {{ c.monto|peso }}</span>
-          <form method="post" action="{{ url_for('marcar_cuota', id_=p.id, numero=c.numero) }}"><button class="del">{% if c.pagada %}↩ Deshacer{% else %}✓ {{ verbo|capitalize }}{% endif %}</button></form>
+        <div class="cuota{% if c.pagada %} hecha{% endif %}">
+          <span{% if c.vencida %} class="alerta"{% endif %}>{{ c.numero }}. {{ c.vence|fecha_corta }} · {{ c.monto|peso }}</span>
+          <form method="post" action="{{ url_for('marcar_cuota', id_=p.id, numero=c.numero) }}">
+            {% if c.pagada %}<button class="btn sec chico">{{ icono('deshacer', 14) }} Deshacer</button>
+            {% else %}<button class="btn chico">{{ icono('ok', 14) }} {{ verbo|capitalize }}</button>{% endif %}
+          </form>
         </div>
         {% endfor %}
-        <form method="post" action="{{ url_for('eliminar_prestamo', id_=p.id) }}" onsubmit="return confirm('¿Eliminar este préstamo y sus cuotas?')"><button class="del">✕ Eliminar préstamo</button></form>
-      </details>
-    </div>
-    {% else %}<p class="lbl">{{ vacio }}</p>{% endfor %}
-  </div>
+        <form method="post" action="{{ url_for('eliminar_prestamo', id_=p.id) }}" onsubmit="return confirm('¿Borrar este préstamo y sus cuotas?')" style="margin-top:16px">
+          <button class="borrar">{{ icono('cerrar', 14) }} Borrar préstamo</button>
+        </form>
+      </div>
+    </details>
+    {% else %}<p class="vacio">{{ vacio }}</p>{% endfor %}
+  </section>
 {% endmacro %}
 {% block contenido %}
+  <div class="titulo-pagina">
+    <h1>Préstamos</h1>
+    <p>Lo que debés y lo que te deben. No cuentan como gastos.</p>
+  </div>
+
   <div class="stats">
-    <div class="card"><div class="lbl">Me deben</div><div class="big cobrar">{{ saldo_rol.get('acreedor', 0)|peso }}</div></div>
-    <div class="card"><div class="lbl">Debo</div><div class="big">{{ saldo_rol.get('deudor', 0)|peso }}</div></div>
-    <div class="card"><div class="lbl">Cuotas vencidas</div><div class="big{% if vencidas %} vencida{% endif %}">{{ vencidas }}</div></div>
+    <div class="stat"><div class="lbl">Te deben</div><div class="big ok">{{ saldo_rol.get('acreedor', 0)|peso }}</div></div>
+    <div class="stat"><div class="lbl">Debés</div><div class="big">{{ saldo_rol.get('deudor', 0)|peso }}</div></div>
+    <div class="stat"><div class="lbl">Cuotas vencidas</div><div class="big{% if vencidas %} alerta{% endif %}">{{ vencidas }}</div></div>
   </div>
 
-  {{ lista('deudor', 'Debo', 'pagada', 'No tienes préstamos por pagar.') }}
-  {{ lista('acreedor', 'Me deben', 'cobrada', 'Nadie te debe plata por ahora.') }}
+  <div class="grilla dos">
+    {{ lista('deudor', 'Debés', 'pagada', 'No tenés préstamos por pagar.') }}
+    {{ lista('acreedor', 'Te deben', 'cobrada', 'Nadie te debe plata por ahora.') }}
+  </div>
 
-  <div class="card">
-    <h2>Agregar préstamo</h2>
-    <form class="row" method="post" action="{{ url_for('agregar_prestamo') }}">
-      <select name="rol">{% for k in ['deudor', 'acreedor'] %}<option value="{{ k }}">{{ 'Yo debo' if k == 'deudor' else 'Me deben' }}</option>{% endfor %}</select>
-      <input name="persona" placeholder="Persona o entidad" required>
-      <input name="monto" placeholder="Monto prestado" inputmode="decimal" required>
-      <label class="campo"><span class="lbl">Fecha del préstamo</span><input type="date" name="fecha" value="{{ hoy }}" required></label>
-      <label class="campo"><span class="lbl">Cuotas (1 = pago único)</span><input type="number" name="cuotas" min="1" max="120" value="1"></label>
-      <label class="campo"><span class="lbl">Primer vencimiento</span><input type="date" name="primer_vencimiento" required></label>
-      <label class="chk"><input type="checkbox" name="con_interes" id="p-interes" onchange="cambiarInteres()"> Con interés</label>
-      <input name="total" id="p-total" placeholder="Total a devolver" inputmode="decimal" class="hidden">
-      <input name="descripcion" placeholder="Descripción (opcional)">
-      <button class="primary">Guardar préstamo</button>
+  <details class="card plegable"{% if not prestamos.get('deudor') and not prestamos.get('acreedor') or request.args.get('error') == 'prestamo' %} open{% endif %}>
+    <summary><h2 style="margin:0">Agregar préstamo</h2></summary>
+    <form class="form" method="post" action="{{ url_for('agregar_prestamo') }}">
+      <label class="campo"><span>¿Quién debe?</span><select name="rol"><option value="deudor">Yo debo</option><option value="acreedor">Me deben</option></select></label>
+      <label class="campo"><span>Persona o entidad</span><input name="persona" placeholder="Ej: Juan, Banco Galicia" required></label>
+      <label class="campo"><span>Monto prestado</span><input name="monto" placeholder="Ej: 100.000" inputmode="decimal" required></label>
+      <label class="campo"><span>Fecha del préstamo</span><input type="date" name="fecha" value="{{ hoy }}" required></label>
+      <label class="campo"><span>Cuotas (1 = pago único)</span><input type="number" name="cuotas" min="1" max="120" value="1"></label>
+      <label class="campo"><span>Primer vencimiento</span><input type="date" name="primer_vencimiento" required></label>
+      <label class="check"><input type="checkbox" name="con_interes" id="p-interes" onchange="cambiarInteres()"> Con interés</label>
+      <label class="campo hidden" id="campo-total"><span>Total a devolver</span><input name="total" id="p-total" inputmode="decimal"></label>
+      <label class="campo"><span>Descripción (opcional)</span><input name="descripcion" placeholder="Ej: préstamo personal"></label>
+      <div class="ancho"><button class="btn">Guardar préstamo</button></div>
     </form>
-    <p class="lbl">Las cuotas son mensuales desde el primer vencimiento. Los préstamos no cuentan como gastos: las cuotas que debes aparecen en la Proyección, y lo que te deben se muestra aparte, como dinero a cobrar.</p>
-  </div>
+    <p class="lbl" style="margin-bottom:0">Las cuotas son mensuales desde el primer vencimiento. Las que debés aparecen en la Proyección; lo que te deben se muestra aparte, como plata a cobrar.</p>
+  </details>
 {% endblock %}
 {% block scripts %}
 <script>
 function cambiarInteres() {
   var on = document.getElementById('p-interes').checked;
-  var total = document.getElementById('p-total');
-  total.classList.toggle('hidden', !on);
-  total.required = on;
+  document.getElementById('campo-total').classList.toggle('hidden', !on);
+  document.getElementById('p-total').required = on;
 }
 cambiarInteres();
 </script>

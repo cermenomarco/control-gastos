@@ -1,59 +1,116 @@
 {% extends "base.html" %}
+{% from "_iconos.html" import icono, ico_categoria %}
+{% from "_gastos.html" import lista_gastos %}
 {% block contenido %}
-  <div class="stats">
-    <div class="card"><div class="lbl">Total del mes</div><div class="big">{{ total|peso }}</div></div>
-    <div class="card"><div class="lbl">Gastos del mes</div><div class="big">{{ cantidad }}</div></div>
-    <div class="card"><div class="lbl">Categoría principal</div><div class="big">{{ por_cat[0][0] if por_cat else '—' }}</div></div>
-    <div class="card"><div class="lbl">Tarjeta principal</div>{% if tarjeta_top %}<div class="big">{{ tarjeta_top[0] }}</div><div class="lbl">{{ tarjeta_top[1]|peso }}</div>{% else %}<div class="big">—</div>{% endif %}</div>
-    <div class="card"><div class="lbl">Banco principal</div>{% if banco_top %}<div class="big">{{ banco_top[0] }}</div><div class="lbl">{{ banco_top[1]|peso }}</div>{% else %}<div class="big">—</div>{% endif %}</div>
-  </div>
+  <section class="hero">
+    <div class="lbl">Gastado en {{ mes_nombre|lower }}</div>
+    <div class="monto-hero">{{ total|peso }}</div>
+  </section>
 
-  <div class="card">
-    <h2>Agregar gasto</h2>
-    <form class="add" method="post" action="{{ url_for('agregar') }}">
-      <input name="monto" placeholder="Monto (ej: 1500,50)" inputmode="decimal" required>
-      <input name="categoria" list="cats" placeholder="Categoría" required>
-      <datalist id="cats">{% for c in cats %}<option value="{{ c }}">{% endfor %}</datalist>
-      <input name="descripcion" placeholder="Descripción (opcional)">
-      <input name="fecha" type="date" value="{{ hoy }}" required>
-      <select name="medio" id="medio" onchange="cambiarMedio()">
-        {% for clave, nombre in medios.items() %}<option value="{{ clave }}">{{ nombre }}</option>{% endfor %}
-      </select>
-      <select name="tarjeta_id" id="sel-tarjeta" onchange="actualizarCredito()">
-        <option value="">Elegir tarjeta</option>
-        {% for tid, etiqueta, modalidad, info in tarjetas %}<option value="{{ tid }}" data-modalidad="{{ modalidad }}">{{ etiqueta }}</option>{% endfor %}
-      </select>
-      <select name="banco_id" id="sel-banco" class="hidden">
-        <option value="">Elegir banco</option>
-        {% for bid, nombre in bancos %}<option value="{{ bid }}">{{ nombre }}</option>{% endfor %}
-      </select>
-      <input name="cuotas" id="cuotas" type="number" min="1" max="60" value="1" placeholder="Cuotas" class="hidden">
-      <label class="chk hidden" id="lbl-interes"><input type="checkbox" name="con_interes" id="con-interes" onchange="actualizarCredito()"> Con interés</label>
-      <input name="total_con_interes" id="total-interes" placeholder="Total a pagar con intereses" inputmode="decimal" class="hidden">
-      <button class="primary">Guardar</button>
-    </form>
-  </div>
+  <section class="medidor" aria-label="Presupuesto del mes">
+    {% if medidor_mes %}
+      {{ medidor(medidor_mes.gastados, medidor_mes.libres ~ ' gajos libres de 8') }}
+      <div>
+        {% if medidor_mes.excedido %}
+          <div class="titulo">Gastaste un gajo de más</div>
+          <div class="sub">{{ medidor_mes.excedido|peso }} por encima del presupuesto de {{ medidor_mes.presupuesto|peso }}.</div>
+        {% elif medidor_mes.libres == 0 %}
+          <div class="titulo">Estás en el último gajo</div>
+          <div class="sub">Te quedan {{ medidor_mes.queda|peso }} de {{ medidor_mes.presupuesto|peso }}.</div>
+        {% else %}
+          <div class="titulo">Te quedan {{ medidor_mes.libres }} gajo{{ 's' if medidor_mes.libres > 1 }} de 8</div>
+          <div class="sub">{{ medidor_mes.queda|peso }} libres de un presupuesto de {{ medidor_mes.presupuesto|peso }}.</div>
+        {% endif %}
+        <details>
+          <summary>Cambiar presupuesto</summary>
+          <form method="post" action="{{ url_for('guardar_presupuesto') }}">
+            <input name="presupuesto" inputmode="decimal" placeholder="Ej: 300.000" aria-label="Presupuesto del mes">
+            <button class="btn">Guardar</button>
+          </form>
+        </details>
+      </div>
+    {% else %}
+      {{ medidor(0, 'Sin presupuesto') }}
+      <div>
+        <div class="titulo">¿Cuánto querés gastar por mes?</div>
+        <div class="sub">Poné tu presupuesto y te muestro cuántos gajos te quedan.</div>
+        <form method="post" action="{{ url_for('guardar_presupuesto') }}">
+          <input name="presupuesto" inputmode="decimal" placeholder="Ej: 300.000" aria-label="Presupuesto del mes" required>
+          <button class="btn">Listo</button>
+        </form>
+      </div>
+    {% endif %}
+  </section>
 
-
-  <div class="card">
-    <h2>Por categoría</h2>
-    {% for cat, suma in por_cat %}
-    <div class="bar">
-      <div class="top"><span>{{ cat }}</span><span>{{ suma|peso }} · {{ (suma / total * 100)|round|int }}%</span></div>
-      <div class="track"><i style="width:{{ suma / total * 100 }}%;background:{{ cat|color }}"></i></div>
+  <details class="agregar" id="agregar"{% if error and request.args.get('error') in ('datos', 'cuotas', 'interes') %} open{% endif %}>
+    <summary class="btn">{{ icono('mas_uno', 18) }} Agregar gasto</summary>
+    <div class="card">
+      <div class="cabeza"><h2>Nuevo gasto</h2></div>
+      <form class="form" method="post" action="{{ url_for('agregar') }}">
+        <label class="campo"><span>Monto</span><input name="monto" placeholder="Ej: 15.000" inputmode="decimal" required autofocus></label>
+        <label class="campo"><span>Categoría</span><input name="categoria" list="cats" placeholder="Ej: comida" required></label>
+        <datalist id="cats">{% for c in cats %}<option value="{{ c }}">{% endfor %}</datalist>
+        <label class="campo"><span>Descripción (opcional)</span><input name="descripcion" placeholder="Ej: súper del finde"></label>
+        <label class="campo"><span>Fecha</span><input name="fecha" type="date" value="{{ hoy }}" required></label>
+        <label class="campo"><span>¿Cómo pagaste?</span>
+          <select name="medio" id="medio" onchange="cambiarMedio()">
+            {% for clave, nombre in medios.items() %}<option value="{{ clave }}">{{ nombre }}</option>{% endfor %}
+          </select></label>
+        <label class="campo" id="campo-tarjeta"><span>Tarjeta</span>
+          <select name="tarjeta_id" id="sel-tarjeta" onchange="actualizarCredito()">
+            <option value="">Elegí una tarjeta</option>
+            {% for tid, etiqueta, modalidad, info in tarjetas %}<option value="{{ tid }}" data-modalidad="{{ modalidad }}">{{ etiqueta }}</option>{% endfor %}
+          </select></label>
+        <label class="campo hidden" id="campo-banco"><span>Banco</span>
+          <select name="banco_id" id="sel-banco">
+            <option value="">Elegí un banco</option>
+            {% for bid, nombre in bancos %}<option value="{{ bid }}">{{ nombre }}</option>{% endfor %}
+          </select></label>
+        <label class="campo hidden" id="campo-cuotas"><span>Cuotas (1 = un pago)</span><input name="cuotas" id="cuotas" type="number" min="1" max="60" value="1"></label>
+        <label class="check hidden" id="lbl-interes"><input type="checkbox" name="con_interes" id="con-interes" onchange="actualizarCredito()"> Con interés</label>
+        <label class="campo hidden" id="campo-total"><span>Total a pagar con intereses</span><input name="total_con_interes" id="total-interes" inputmode="decimal"></label>
+        <div class="ancho" style="display:flex;gap:12px;flex-wrap:wrap">
+          <button class="btn">Guardar gasto</button>
+          <button type="button" class="btn sec" onclick="document.getElementById('agregar').open=false">Cancelar</button>
+        </div>
+      </form>
     </div>
-    {% else %}<p class="lbl">Todavía no hay gastos este mes.</p>{% endfor %}
+  </details>
+
+  <div class="chips">
+    <span><b>{{ cantidad }}</b> gasto{{ 's' if cantidad != 1 }} este mes</span>
+    {% if tarjeta_top %}<span>{{ icono('tarjetas', 16) }} Más usada: <b>{{ tarjeta_top[0] }}</b></span>{% endif %}
+    {% if banco_top %}<span>{{ icono('banco', 16) }} Banco: <b>{{ banco_top[0] }}</b></span>{% endif %}
   </div>
 
+  <div class="grilla dos">
+    <section class="card">
+      <div class="cabeza"><h2>En qué se fue</h2></div>
+      {% for cat, suma in por_cat %}
+      <div class="fila">
+        {{ ico_categoria(cat) }}
+        <div class="cuerpo">
+          <div class="titulo">{{ cat|capitalize }}</div>
+          <div class="barra fina"><i style="width:{{ suma / total * 100 }}%"></i></div>
+        </div>
+        <div class="monto">{{ suma|peso }}<div class="chico">{{ (suma / total * 100)|round|int }}%</div></div>
+      </div>
+      {% else %}<p class="vacio">Todavía no cargaste gastos este mes.</p>{% endfor %}
+    </section>
 
-{% include "_gastos.html" %}
+    <section class="card">
+      <div class="cabeza"><h2>Últimos gastos</h2><a href="{{ url_for('ver_gastos', mes='') }}">Ver todos</a></div>
+      {% if filas %}{{ lista_gastos(filas[:5]) }}{% else %}<p class="vacio">Acá vas a ver lo último que cargues.</p>{% endif %}
+    </section>
+  </div>
 {% endblock %}
 {% block scripts %}
 <script>
+function mostrar(id, si) { document.getElementById(id).classList.toggle('hidden', !si); }
 function cambiarMedio() {
   var medio = document.getElementById('medio').value;
-  document.getElementById('sel-tarjeta').classList.toggle('hidden', medio !== 'tarjeta');
-  document.getElementById('sel-banco').classList.toggle('hidden', medio !== 'transferencia');
+  mostrar('campo-tarjeta', medio === 'tarjeta');
+  mostrar('campo-banco', medio === 'transferencia');
   actualizarCredito();
 }
 function actualizarCredito() {
@@ -61,9 +118,9 @@ function actualizarCredito() {
   var op = sel.options[sel.selectedIndex];
   var credito = document.getElementById('medio').value === 'tarjeta' && op && op.dataset.modalidad === 'credito';
   var interes = document.getElementById('con-interes').checked;
-  document.getElementById('cuotas').classList.toggle('hidden', !credito);
-  document.getElementById('lbl-interes').classList.toggle('hidden', !credito);
-  document.getElementById('total-interes').classList.toggle('hidden', !(credito && interes));
+  mostrar('campo-cuotas', credito);
+  mostrar('lbl-interes', credito);
+  mostrar('campo-total', credito && interes);
 }
 cambiarMedio();
 </script>

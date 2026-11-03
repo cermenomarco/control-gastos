@@ -1,60 +1,100 @@
 {% extends "base.html" %}
+{% from "_iconos.html" import icono %}
 {% block contenido %}
-  <div class="card">
-    <h2>Límite de crédito</h2>
-    {% for u in uso_credito %}
-    <div class="bar">
-      <div class="top"><span>{{ u.tarjeta }}</span><span>{{ u.porcentaje|round|int }}% usado</span></div>
-      <div class="medidor {{ u.nivel }}"><i style="width:{{ u.ancho }}%"></i></div>
-      <div class="top lbl"><span>Usado {{ u.usado|peso }} de {{ u.limite|peso }}</span><span>{% if u.disponible >= 0 %}Disponible {{ u.disponible|peso }}{% else %}Excedido en {{ (-u.disponible)|peso }}{% endif %}</span></div>
-    </div>
-    {% else %}<p class="lbl">Carga el límite de tus tarjetas de crédito (en "Mis tarjetas y bancos", más abajo) para ver cuánto llevas usado.</p>{% endfor %}
-    <p class="lbl">Se calcula con lo que todavía falta pagar: compras y cuotas de los resúmenes pendientes. Puede diferir un poco del límite que muestra tu banco.</p>
+  <div class="titulo-pagina">
+    <h1>Tarjetas</h1>
+    <p>Cuánto usaste de cada una y qué viene en los próximos resúmenes.</p>
   </div>
 
-  <div class="card">
-    <h2>Próximos pagos de tarjetas de crédito</h2>
-    {% if sin_fechas %}<p class="lbl">Falta el cierre y vencimiento de: {{ sin_fechas|join(', ') }}. Guarda la tarjeta de nuevo con los mismos datos para completarlos.</p>{% endif %}
-    {% if proximos %}
-    <div class="wrap"><table>
-      <tr><th>Tarjeta</th><th>Cierra</th><th>Vence</th><th class="num">A pagar</th><th class="num">Intereses</th><th></th></tr>
-      {% for p in proximos %}
-      <tr{% if p.pagado %} class="pagado"{% endif %}><td>{{ p.tarjeta }}</td><td>{{ p.cierra|fecha }}</td><td>{{ p.vence|fecha }}</td><td class="num">{{ p.a_pagar|peso }}</td><td class="num">{{ p.intereses|peso }}</td>
-        <td><form method="post" action="{{ url_for('marcar_resumen', id_=p.tarjeta_id, periodo=p.periodo) }}"{% if not p.pagado %} onsubmit="return confirm('¿Marcar este resumen como pagado?')"{% endif %}><button class="del" title="{% if p.pagado %}Volver a marcarlo como pendiente{% else %}Marcar como pagado{% endif %}">{% if p.pagado %}↩ Deshacer{% else %}✓ Pagado{% endif %}</button></form></td></tr>
-      {% endfor %}
-    </table></div>
-    <p class="lbl">Los resúmenes marcados como pagados no cuentan en el límite usado ni en la proyección.</p>
-    {% else %}<p class="lbl">Cuando cargues compras con tarjeta de crédito, acá ves cuánto pagas en cada vencimiento.</p>{% endif %}
+  {% if tarjetas_det %}
+  <div class="plasticos">
+    {% for t in tarjetas_det %}
+    {% set uso = uso_credito|selectattr('tarjeta', 'equalto', t.etiqueta)|first %}
+    <article class="plastico{% if t.modalidad == 'debito' %} debito{% endif %}">
+      <div class="marca-t">
+        <span style="display:flex;align-items:center;gap:8px">{{ simbolo() }}<b>{{ t.tipo }}</b></span>
+        <span class="sub">{{ 'Crédito' if t.modalidad == 'credito' else 'Débito' }}</span>
+      </div>
+      <div class="sub">{{ t.banco or 'Sin banco' }}{% if t.modalidad == 'credito' and t.cierre %} · cierra el {{ t.cierre }}, vence el {{ t.vence }}{% endif %}</div>
+      <div class="digitos">•••• {{ t.ultimos4 }}</div>
+      {% if t.modalidad == 'credito' %}
+        {% if uso %}
+        <div class="barra {{ uso.nivel }}" role="img" aria-label="{{ uso.porcentaje|round|int }}% del límite usado"><i style="width:{{ uso.ancho }}%"></i></div>
+        <div class="sub" style="display:flex;justify-content:space-between;gap:8px">
+          <span>Usaste {{ uso.usado|peso }} ({{ uso.porcentaje|round|int }}%)</span>
+          <span>{% if uso.disponible >= 0 %}Te quedan {{ uso.disponible|peso }}{% else %}Te pasaste {{ (-uso.disponible)|peso }}{% endif %}</span>
+        </div>
+        {% elif not t.cierre %}
+        <div><span class="pildora aviso">Faltan cierre y vencimiento</span></div>
+        {% else %}
+        <div class="sub">Sin límite cargado</div>
+        {% endif %}
+      {% endif %}
+    </article>
+    {% endfor %}
   </div>
+  {% endif %}
 
-  <details class="card">
-    <summary>Mis tarjetas y bancos</summary>
-    <h2>Tarjetas</h2>
-    {% for tid, etiqueta, modalidad, info in tarjetas %}
-    <div class="item"><span>{{ etiqueta }} <small class="lbl">{{ info }}</small></span>
-      <form method="post" action="{{ url_for('eliminar_tarjeta', id_=tid) }}" onsubmit="return confirm('¿Eliminar esta tarjeta?')"><button class="del" title="Eliminar">✕</button></form>
+  <section class="card">
+    <div class="cabeza"><h2>Próximos resúmenes</h2></div>
+    {% for p in proximos %}
+    {% set faltan = p.vence|dias_hasta %}
+    <div class="fila{% if p.pagado %} hecha{% endif %}">
+      <span class="ico neutro">{{ icono('calendario', 18) }}</span>
+      <div class="cuerpo">
+        <div class="titulo">{{ p.tarjeta }}</div>
+        <div class="detalle">Cierra el {{ p.cierra|fecha_corta }} · vence el {{ p.vence|fecha_corta }}{% if p.intereses > 0 %} · {{ p.intereses|peso }} de interés{% endif %}</div>
+        <div class="acciones">
+          <form method="post" action="{{ url_for('marcar_resumen', id_=p.tarjeta_id, periodo=p.periodo) }}"{% if not p.pagado %} onsubmit="return confirm('¿Ya pagaste este resumen?')"{% endif %}>
+            {% if p.pagado %}<button class="btn sec chico" title="Volver a pendiente">{{ icono('deshacer', 14) }} Deshacer</button>
+            {% else %}<button class="btn chico">{{ icono('ok', 14) }} Lo pagué</button>{% endif %}
+          </form>
+          {% if not p.pagado and faltan <= 3 %}<span class="pildora aviso">{{ 'Vence hoy' if faltan == 0 else 'Vence mañana' if faltan == 1 else 'Vence en ' ~ faltan ~ ' días' }}</span>{% endif %}
+        </div>
+      </div>
+      <div class="monto">{{ p.a_pagar|peso }}</div>
     </div>
-    {% else %}<p class="lbl">Todavía no cargaste tarjetas.</p>{% endfor %}
-    <form class="row" method="post" action="{{ url_for('agregar_tarjeta') }}">
-      <select name="tipo">{% for t in tipos %}<option>{{ t }}</option>{% endfor %}</select>
-      <input name="ultimos4" placeholder="Últimos 4 dígitos" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required>
-      <select name="banco_id"><option value="">Banco (opcional)</option>{% for bid, nombre in bancos %}<option value="{{ bid }}">{{ nombre }}</option>{% endfor %}</select>
-      <select name="modalidad" id="modalidad" onchange="cambiarModalidad()">{% for k, v in modalidades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
-      <input name="dia_cierre" id="dia-cierre" type="number" min="1" max="31" placeholder="Día de cierre">
-      <input name="dia_vencimiento" id="dia-venc" type="number" min="1" max="31" placeholder="Día de vencimiento">
-      <input name="limite" id="limite" inputmode="decimal" placeholder="Límite (opcional)">
-      <button class="primary">Guardar tarjeta</button>
+    {% else %}<p class="vacio">Cuando cargues compras con tarjeta de crédito, acá ves cuánto pagás en cada vencimiento.</p>{% endfor %}
+    {% if sin_fechas %}<p class="lbl" style="margin-bottom:0">Para calcular los resúmenes de {{ sin_fechas|join(', ') }} falta el día de cierre y de vencimiento. Guardá la tarjeta de nuevo abajo para completarlos.</p>{% endif %}
+    {% if proximos %}<p class="lbl" style="margin-bottom:0">Lo que marcás como pagado deja de contar en el límite usado y en la proyección.</p>{% endif %}
+  </section>
+
+  <details class="card plegable"{% if not tarjetas_det or request.args.get('error') in ('tarjeta', 'banco', 'usado') %} open{% endif %}>
+    <summary><h2 style="margin:0">Agregar o editar tarjetas</h2></summary>
+    <form class="form" method="post" action="{{ url_for('agregar_tarjeta') }}">
+      <label class="campo"><span>Tipo</span><select name="tipo">{% for t in tipos %}<option>{{ t }}</option>{% endfor %}</select></label>
+      <label class="campo"><span>Últimos 4 dígitos</span><input name="ultimos4" placeholder="Ej: 4417" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label>
+      <label class="campo"><span>Crédito o débito</span><select name="modalidad" id="modalidad" onchange="cambiarModalidad()">{% for k, v in modalidades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+      <label class="campo"><span>Banco (opcional)</span><select name="banco_id"><option value="">Sin banco</option>{% for bid, nombre in bancos %}<option value="{{ bid }}">{{ nombre }}</option>{% endfor %}</select></label>
+      <label class="campo solo-credito"><span>Día de cierre</span><input name="dia_cierre" id="dia-cierre" type="number" min="1" max="31" placeholder="Ej: 25"></label>
+      <label class="campo solo-credito"><span>Día de vencimiento</span><input name="dia_vencimiento" id="dia-venc" type="number" min="1" max="31" placeholder="Ej: 5"></label>
+      <label class="campo solo-credito"><span>Límite (opcional)</span><input name="limite" inputmode="decimal" placeholder="Ej: 1.500.000"></label>
+      <div class="ancho"><button class="btn">Guardar tarjeta</button></div>
     </form>
-    <p class="lbl">Para corregir una tarjeta, guárdala de nuevo con el mismo tipo y últimos 4 dígitos: se actualiza con lo que completes.</p>
-    <h2>Bancos</h2>
-    {% for bid, nombre in bancos %}
-    <div class="item"><span>{{ nombre }}</span>
-      <form method="post" action="{{ url_for('eliminar_banco', id_=bid) }}" onsubmit="return confirm('¿Eliminar este banco?')"><button class="del" title="Eliminar">✕</button></form>
+    <p class="lbl">Solo cargá los últimos 4 dígitos, nunca el número completo. Para corregir una tarjeta, guardala de nuevo con el mismo tipo y los mismos 4 dígitos.</p>
+
+    {% if tarjetas %}
+    <h3 style="margin:24px 0 4px">Tus tarjetas</h3>
+    {% for tid, etiqueta, modalidad, info in tarjetas %}
+    <div class="fila">
+      <span class="ico neutro">{{ icono('tarjetas', 18) }}</span>
+      <div class="cuerpo"><div class="titulo">{{ etiqueta }}</div>{% if info %}<div class="detalle">{{ info }}</div>{% endif %}</div>
+      <form method="post" action="{{ url_for('eliminar_tarjeta', id_=tid) }}" onsubmit="return confirm('¿Borrar esta tarjeta?')"><button class="borrar" aria-label="Borrar tarjeta">{{ icono('cerrar', 16) }}</button></form>
     </div>
-    {% else %}<p class="lbl">Todavía no cargaste bancos.</p>{% endfor %}
-    <form class="row" method="post" action="{{ url_for('agregar_banco') }}">
-      <input name="nombre" placeholder="Nombre del banco" required>
-      <button class="primary">Agregar banco</button>
+    {% endfor %}
+    {% endif %}
+
+    <h3 style="margin:24px 0 4px">Bancos</h3>
+    {% for bid, nombre in bancos %}
+    <div class="fila">
+      <span class="ico neutro">{{ icono('banco', 18) }}</span>
+      <div class="cuerpo"><div class="titulo">{{ nombre }}</div></div>
+      <form method="post" action="{{ url_for('eliminar_banco', id_=bid) }}" onsubmit="return confirm('¿Borrar este banco?')"><button class="borrar" aria-label="Borrar banco">{{ icono('cerrar', 16) }}</button></form>
+    </div>
+    {% else %}<p class="vacio">Todavía no cargaste bancos.</p>{% endfor %}
+    <form class="form" method="post" action="{{ url_for('agregar_banco') }}" style="margin-top:12px">
+      <label class="campo"><span>Nuevo banco</span><input name="nombre" placeholder="Ej: Galicia" required></label>
+      <div><button class="btn sec">Agregar banco</button></div>
     </form>
   </details>
 {% endblock %}
@@ -62,12 +102,8 @@
 <script>
 function cambiarModalidad() {
   var credito = document.getElementById('modalidad').value === 'credito';
-  ['dia-cierre', 'dia-venc'].forEach(function (id) {
-    var el = document.getElementById(id);
-    el.classList.toggle('hidden', !credito);
-    el.required = credito;
-  });
-  document.getElementById('limite').classList.toggle('hidden', !credito);
+  document.querySelectorAll('.solo-credito').forEach(function (el) { el.classList.toggle('hidden', !credito); });
+  ['dia-cierre', 'dia-venc'].forEach(function (id) { document.getElementById(id).required = credito; });
 }
 cambiarModalidad();
 </script>

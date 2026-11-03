@@ -86,6 +86,10 @@ TABLAS = [
            real REAL,                     -- lo que costó de verdad, si fue distinto
            cubierto INTEGER NOT NULL DEFAULT 0
        )""",
+    """CREATE TABLE IF NOT EXISTS ajustes (
+           clave TEXT PRIMARY KEY,
+           valor TEXT
+       )""",
 ]
 
 # Columnas que se fueron agregando a las tablas después de crearlas

@@ -12,17 +12,18 @@ TIPOS_FIJO = {"suscripcion": "Suscripción", "servicio": "Servicio", "impuesto":
 ROLES = {"acreedor": "Me deben", "deudor": "Debo"}
 FRECUENCIAS = {1: "Mensual", 2: "Bimestral", 3: "Trimestral", 6: "Semestral", 12: "Anual"}
 ERRORES = {
-    "datos": "Revisa el monto (número mayor a 0), la fecha y el medio de pago.",
-    "tarjeta": "Revisa la tarjeta: tipo, 4 dígitos y, si es de crédito, día de cierre y de vencimiento (1 a 31).",
-    "cuotas": "Las cuotas deben ser un número entre 1 y 60.",
-    "fijo": "Revisa el gasto fijo: nombre, monto mayor a 0, día de cobro (1 a 31), frecuencia y mes del primer cobro.",
-    "prestamo": "Revisa el préstamo: persona, monto mayor a 0, fechas, cuotas (1 a 120) y, si hay interés, un total a devolver mayor al monto.",
-    "objetivo": "Ponle un nombre al objetivo (la fecha meta es opcional).",
-    "item": "Revisa el ítem: nombre y monto estimado mayor a 0 (el monto real, si lo pones, también).",
-    "monto_fijo": "Revisa el nuevo monto (mayor a 0) y el mes desde el que rige.",
-    "interes": "Si hay interés, indica el total a pagar (mayor al monto).",
-    "banco": "El nombre del banco está vacío o ya existe.",
-    "usado": "No se puede eliminar: tiene gastos o tarjetas asociados.",
+    "datos": "Revisá el monto (mayor a 0), la fecha y el medio de pago.",
+    "tarjeta": "Revisá la tarjeta: tipo, los 4 dígitos y, si es de crédito, el día de cierre y de vencimiento (1 a 31).",
+    "cuotas": "Las cuotas van de 1 a 60.",
+    "fijo": "Revisá el gasto fijo: nombre, monto mayor a 0, día de cobro (1 a 31), frecuencia y mes del primer cobro.",
+    "prestamo": "Revisá el préstamo: persona, monto mayor a 0, fechas, cuotas (1 a 120) y, si hay interés, un total a devolver mayor al monto.",
+    "objetivo": "Ponele un nombre al objetivo (la fecha meta es opcional).",
+    "item": "Revisá el ítem: nombre y monto estimado mayor a 0 (y el monto real, si lo cargás).",
+    "monto_fijo": "Revisá el nuevo monto (mayor a 0) y el mes desde el que rige.",
+    "interes": "Si hay interés, poné el total a pagar (mayor al monto).",
+    "banco": "Ese banco ya está cargado o el nombre está vacío.",
+    "usado": "No se puede borrar: tiene gastos, tarjetas o gastos fijos asociados.",
+    "presupuesto": "El presupuesto tiene que ser un monto mayor a 0.",
 }
 
 
@@ -216,3 +217,17 @@ def resumen_objetivo(items, fecha_meta, hoy):
         "avance": cubierto / total * 100 if total else 0, "meses": meses, "ahorro_mensual": ahorro,
         "completo": bool(items) and falta == 0,
     }
+
+
+GAJOS = 8
+
+
+def gajos(total, presupuesto):
+    """Medidor de la marca: el presupuesto del mes son 8 gajos y cada uno gastado se apaga.
+    Devuelve dict con gastados, libres, lo que queda y lo que se pasó (si se pasó)."""
+    if not presupuesto:
+        return None
+    gastados = min(GAJOS, round(total / presupuesto * GAJOS))
+    queda = presupuesto - total
+    return {"gastados": gastados, "libres": GAJOS - gastados, "presupuesto": presupuesto,
+            "queda": max(queda, 0), "excedido": max(-queda, 0)}
