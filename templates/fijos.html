@@ -21,7 +21,7 @@
         <summary class="lbl">Actualizar monto{% if f.anteriores %} · historial{% endif %}</summary>
         <form class="row" method="post" action="{{ url_for('actualizar_monto', id_=f.id) }}">
           <input name="monto" placeholder="Nuevo monto" inputmode="decimal" required>
-          <input type="month" name="desde" value="{{ mes_actual }}" title="Rige desde" required>
+          <label class="campo"><span class="lbl">Rige desde</span><input type="month" name="desde" value="{{ mes_actual }}" required></label>
           <button class="primary">Guardar aumento</button>
         </form>
         {% for desde, monto in f.anteriores %}<div class="lbl">Desde {{ desde|mes }}: {{ monto|peso }}</div>{% endfor %}
@@ -39,7 +39,7 @@
       <input name="monto" placeholder="Monto de cada cobro" inputmode="decimal" required>
       <input name="dia_cobro" type="number" min="1" max="31" placeholder="Día de cobro" required>
       <select name="frecuencia" id="frecuencia" onchange="cambiarFrecuencia()">{% for k, v in frecuencias.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
-      <input type="month" name="mes_inicio" id="mes-inicio" value="{{ mes_actual }}" title="Mes del primer cobro">
+      <label class="campo" id="mes-inicio"><span class="lbl">Mes del primer cobro</span><input type="month" name="mes_inicio" value="{{ mes_actual }}"></label>
       <select name="tarjeta_id"><option value="">Tarjeta (opcional)</option>{% for tid, etiqueta, modalidad, info in tarjetas %}<option value="{{ tid }}">{{ etiqueta }}</option>{% endfor %}</select>
       <button class="primary">Agregar</button>
     </form>

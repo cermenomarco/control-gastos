@@ -19,11 +19,13 @@ from logica import (
     MESES,
     MEDIOS,
     MODALIDADES,
+    ROLES,
     TIPOS_FIJO,
     TIPOS_TARJETA,
     a_int,
     a_monto,
     cobra_en,
+    cuotas_prestamo,
     etiqueta_tarjeta,
     fecha_dia,
     monto_vigente,
@@ -210,6 +212,16 @@ def renderizar(vista):
            ORDER BY f.dia_cobro, f.nombre"""
     ).fetchall()
     pagados = set(con.execute("SELECT tarjeta_id, periodo FROM resumenes_pagados").fetchall())
+    cuotas_por_prestamo = {}
+    for pid, numero, vence, monto, pagada in con.execute(
+        "SELECT prestamo_id, numero, vence, monto, pagada FROM prestamo_cuotas ORDER BY prestamo_id, numero"
+    ):
+        cuotas_por_prestamo.setdefault(pid, []).append(
+            {"numero": numero, "vence": date.fromisoformat(vence), "monto": monto, "pagada": bool(pagada)}
+        )
+    filas_prestamos = con.execute(
+        "SELECT id, persona, rol, monto, total, fecha, cuotas, descripcion FROM prestamos ORDER BY fecha DESC, id DESC"
+    ).fetchall()
     con.close()
     proximos = resumenes_tarjetas(compras, {t[0]: t[1] for t in tarjetas}, pagados, date.today())
     uso_credito = uso_limites(limites, proximos)
@@ -240,7 +252,25 @@ def renderizar(vista):
         fijos.append(fijo)
     total_mensual = sum(f["monto"] / f["frecuencia"] for f in fijos)
     este_mes = sum(monto_vigente(f["montos"], mes_actual) or 0 for f in fijos if cobra_en(f, hoy_.year, hoy_.month))
-    proyeccion_meses = proyeccion(fijos, proximos, hoy_)
+    prestamos = {"acreedor": [], "deudor": []}
+    vencidas = 0
+    impagas = []
+    for pid, persona, rol, monto, total_p, fecha, n_cuotas, desc in filas_prestamos:
+        cuotas = cuotas_por_prestamo.get(pid, [])
+        pendientes = [c for c in cuotas if not c["pagada"]]
+        for c in cuotas:
+            c["vencida"] = not c["pagada"] and c["vence"] < hoy_
+        vencidas += sum(c["vencida"] for c in cuotas)
+        impagas += [(rol, c["vence"], c["monto"]) for c in pendientes]
+        prestamos.setdefault(rol, []).append({
+            "id": pid, "persona": persona, "monto": monto, "total": total_p, "intereses": total_p - monto,
+            "fecha": date.fromisoformat(fecha), "descripcion": desc, "cuotas": cuotas,
+            "pagadas": len(cuotas) - len(pendientes), "pendiente": sum(c["monto"] for c in pendientes),
+            "proxima": pendientes[0] if pendientes else None,
+            "vencidas": sum(c["vencida"] for c in cuotas),
+        })
+    saldo_rol = {rol: sum(p["pendiente"] for p in lista) for rol, lista in prestamos.items()}
+    proyeccion_meses = proyeccion(fijos, proximos, hoy_, impagas)
     cats = sorted({f[3] for f in filas} | set(CATEGORIAS))
     return render_template(
         f"{vista}.html", mes=mes, total=total, cantidad=cantidad, por_cat=por_cat,
@@ -251,6 +281,7 @@ def renderizar(vista):
         proximos=proximos, sin_fechas=sin_fechas, uso_credito=uso_credito,
         fijos=fijos, total_mensual=total_mensual, este_mes=este_mes, mes_actual=mes_actual,
         tipos_fijo=TIPOS_FIJO, frecuencias=FRECUENCIAS, proyeccion=proyeccion_meses,
+        prestamos=prestamos, saldo_rol=saldo_rol, vencidas=vencidas, roles=ROLES,
         error=ERRORES.get(request.args.get("error")),
     )
 
@@ -268,6 +299,11 @@ def ver_gastos():
 @app.route("/tarjetas")
 def ver_tarjetas():
     return renderizar("tarjetas")
+
+
+@app.route("/prestamos")
+def ver_prestamos():
+    return renderizar("prestamos")
 
 
 @app.route("/proyeccion")
@@ -515,6 +551,57 @@ def eliminar_fijo(id_):
     con.commit()
     con.close()
     return redirect(url_for("ver_fijos"))
+
+
+@app.post("/prestamos")
+def agregar_prestamo():
+    form = request.form
+    persona = form.get("persona", "").strip()
+    rol = form.get("rol")
+    cuotas = a_int(form.get("cuotas")) or 1
+    try:
+        monto = a_monto(form.get("monto", ""))
+        fecha = date.fromisoformat(form.get("fecha", ""))
+        primer = date.fromisoformat(form.get("primer_vencimiento", ""))
+        total = a_monto(form.get("total", "")) if form.get("con_interes") else monto
+    except ValueError:
+        return redirect(url_for("ver_prestamos", error="prestamo"))
+    if not persona or rol not in ROLES or monto <= 0 or not 1 <= cuotas <= 120 or total < monto \
+            or (form.get("con_interes") and total == monto):
+        return redirect(url_for("ver_prestamos", error="prestamo"))
+    con = conectar()
+    cur = con.execute(
+        """INSERT INTO prestamos (persona, rol, monto, total, fecha, cuotas, descripcion)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (persona, rol, monto, total, fecha.isoformat(), cuotas, form.get("descripcion", "").strip()),
+    )
+    con.executemany(
+        "INSERT INTO prestamo_cuotas (prestamo_id, numero, vence, monto) VALUES (?, ?, ?, ?)",
+        [(cur.lastrowid, n, vence.isoformat(), m) for n, vence, m in cuotas_prestamo(total, cuotas, primer)],
+    )
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_prestamos"))
+
+
+@app.post("/prestamos/<int:id_>/cuota/<int:numero>")
+def marcar_cuota(id_, numero):
+    """Marca una cuota como pagada/cobrada; si ya lo estaba, la vuelve a pendiente."""
+    con = conectar()
+    con.execute("UPDATE prestamo_cuotas SET pagada = 1 - pagada WHERE prestamo_id = ? AND numero = ?", (id_, numero))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_prestamos"))
+
+
+@app.post("/prestamos/<int:id_>/eliminar")
+def eliminar_prestamo(id_):
+    con = conectar()
+    con.execute("DELETE FROM prestamos WHERE id = ?", (id_,))
+    con.execute("DELETE FROM prestamo_cuotas WHERE prestamo_id = ?", (id_,))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_prestamos"))
 
 
 if __name__ == "__main__":

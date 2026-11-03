@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% macro lista(rol, titulo, verbo, vacio) %}
+  <div class="card">
+    <h2>{{ titulo }} · {{ saldo_rol.get(rol, 0)|peso }} pendiente</h2>
+    {% for p in prestamos.get(rol, []) %}
+    <div class="fijo">
+      <div class="top"><span><b>{{ p.persona }}</b>{% if p.descripcion %} · {{ p.descripcion }}{% endif %}</span><b>{{ p.pendiente|peso }}</b></div>
+      <div class="lbl">Prestado {{ p.monto|peso }} el {{ p.fecha|fecha }} · {% if p.intereses > 0 %}devuelve {{ p.total|peso }} ({{ p.intereses|peso }} de interés){% else %}sin interés{% endif %} · {{ p.pagadas }}/{{ p.cuotas|length }} cuotas {{ verbo }}s</div>
+      {% if p.vencidas %}<div class="lbl vencida">{{ p.vencidas }} cuota{{ 's' if p.vencidas > 1 }} vencida{{ 's' if p.vencidas > 1 }}</div>
+      {% elif p.proxima %}<div class="lbl">Próxima: {{ p.proxima.monto|peso }} el {{ p.proxima.vence|fecha }}</div>
+      {% else %}<div class="lbl cobrar">Saldado</div>{% endif %}
+      <details>
+        <summary class="lbl">Ver cuotas</summary>
+        {% for c in p.cuotas %}
+        <div class="cuota{% if c.pagada %} pagada{% endif %}">
+          <span{% if c.vencida %} class="vencida"{% endif %}>{{ c.numero }}. {{ c.vence|fecha }} · {{ c.monto|peso }}</span>
+          <form method="post" action="{{ url_for('marcar_cuota', id_=p.id, numero=c.numero) }}"><button class="del">{% if c.pagada %}↩ Deshacer{% else %}✓ {{ verbo|capitalize }}{% endif %}</button></form>
+        </div>
+        {% endfor %}
+        <form method="post" action="{{ url_for('eliminar_prestamo', id_=p.id) }}" onsubmit="return confirm('¿Eliminar este préstamo y sus cuotas?')"><button class="del">✕ Eliminar préstamo</button></form>
+      </details>
+    </div>
+    {% else %}<p class="lbl">{{ vacio }}</p>{% endfor %}
+  </div>
+{% endmacro %}
+{% block contenido %}
+  <div class="stats">
+    <div class="card"><div class="lbl">Me deben</div><div class="big cobrar">{{ saldo_rol.get('acreedor', 0)|peso }}</div></div>
+    <div class="card"><div class="lbl">Debo</div><div class="big">{{ saldo_rol.get('deudor', 0)|peso }}</div></div>
+    <div class="card"><div class="lbl">Cuotas vencidas</div><div class="big{% if vencidas %} vencida{% endif %}">{{ vencidas }}</div></div>
+  </div>
+
+  {{ lista('deudor', 'Debo', 'pagada', 'No tienes préstamos por pagar.') }}
+  {{ lista('acreedor', 'Me deben', 'cobrada', 'Nadie te debe plata por ahora.') }}
+
+  <div class="card">
+    <h2>Agregar préstamo</h2>
+    <form class="row" method="post" action="{{ url_for('agregar_prestamo') }}">
+      <select name="rol">{% for k in ['deudor', 'acreedor'] %}<option value="{{ k }}">{{ 'Yo debo' if k == 'deudor' else 'Me deben' }}</option>{% endfor %}</select>
+      <input name="persona" placeholder="Persona o entidad" required>
+      <input name="monto" placeholder="Monto prestado" inputmode="decimal" required>
+      <label class="campo"><span class="lbl">Fecha del préstamo</span><input type="date" name="fecha" value="{{ hoy }}" required></label>
+      <label class="campo"><span class="lbl">Cuotas (1 = pago único)</span><input type="number" name="cuotas" min="1" max="120" value="1"></label>
+      <label class="campo"><span class="lbl">Primer vencimiento</span><input type="date" name="primer_vencimiento" required></label>
+      <label class="chk"><input type="checkbox" name="con_interes" id="p-interes" onchange="cambiarInteres()"> Con interés</label>
+      <input name="total" id="p-total" placeholder="Total a devolver" inputmode="decimal" class="hidden">
+      <input name="descripcion" placeholder="Descripción (opcional)">
+      <button class="primary">Guardar préstamo</button>
+    </form>
+    <p class="lbl">Las cuotas son mensuales desde el primer vencimiento. Los préstamos no cuentan como gastos: las cuotas que debes aparecen en la Proyección, y lo que te deben se muestra aparte, como dinero a cobrar.</p>
+  </div>
+{% endblock %}
+{% block scripts %}
+<script>
+function cambiarInteres() {
+  var on = document.getElementById('p-interes').checked;
+  var total = document.getElementById('p-total');
+  total.classList.toggle('hidden', !on);
+  total.required = on;
+}
+cambiarInteres();
+</script>
+{% endblock %}

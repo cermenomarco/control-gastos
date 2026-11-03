@@ -42,7 +42,7 @@ nav a.activa{background:var(--acc);border-color:var(--acc);color:#fff}
 summary{cursor:pointer;font-weight:600;font-size:17px}
 details[open] summary{margin-bottom:14px}
 details h2{margin-top:18px}
-.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:10px 0}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:10px 0;align-items:end}
 .item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 .medidor{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin:6px 0}
 .medidor i{display:block;height:100%;border-radius:5px}
@@ -63,6 +63,13 @@ details h2{margin-top:18px}
 .fijo details summary{font-weight:400;font-size:14px;margin:6px 0 0}
 .fijo .del{margin-top:8px}
 .aviso{color:#e0884a}
+.vencida{color:#d64545}
+.campo{display:flex;flex-direction:column;gap:2px}
+.campo .lbl{font-size:12px}
+.serie-prest{background:#9b6bdf}
+.cobrar{color:#2fa66a}
+.cuota{display:flex;justify-content:space-between;align-items:center;font-size:14px;padding:4px 0}
+.cuota.pagada span{color:var(--mut);text-decoration:line-through}
 .serie-tarj{background:#e0884a}
 tr.pagado td:not(:last-child){color:var(--mut);text-decoration:line-through}
 </style>
@@ -72,7 +79,7 @@ tr.pagado td:not(:last-child){color:var(--mut);text-decoration:line-through}
   <h1>Control de gastos</h1>
   <p class="sub">{% if vista == 'inicio' %}Resumen de {{ mes }} · {% endif %}<a href="{{ url_for('salir') }}">Salir</a></p>
   <nav>
-    {% for destino, rotulo in [('inicio', 'Inicio'), ('ver_gastos', 'Gastos'), ('ver_tarjetas', 'Tarjetas'), ('ver_fijos', 'Gastos fijos'), ('ver_proyeccion', 'Proyección')] %}
+    {% for destino, rotulo in [('inicio', 'Inicio'), ('ver_gastos', 'Gastos'), ('ver_tarjetas', 'Tarjetas'), ('ver_fijos', 'Gastos fijos'), ('ver_prestamos', 'Préstamos'), ('ver_proyeccion', 'Proyección')] %}
     <a href="{{ url_for(destino) }}"{% if request.endpoint == destino %} class="activa"{% endif %}>{{ rotulo }}</a>
     {% endfor %}
   </nav>

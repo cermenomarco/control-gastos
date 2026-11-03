@@ -1,45 +1,48 @@
 {% extends "base.html" %}
 {% block contenido %}
-  {% set maximo = proyeccion|map(attribute=3)|max %}
-  {% set comprometido = proyeccion|sum(attribute=3) %}
+  {% set maximo = proyeccion|map(attribute='total')|max %}
+  {% set comprometido = proyeccion|sum(attribute='total') %}
+  {% set a_cobrar = proyeccion|sum(attribute='cobrar') %}
   <div class="stats">
-    <div class="card"><div class="lbl">Comprometido en 6 meses</div><div class="big">{{ comprometido|peso }}</div></div>
-    <div class="card"><div class="lbl">Promedio por mes</div><div class="big">{{ (comprometido / proyeccion|length)|peso }}</div></div>
-    <div class="card"><div class="lbl">Mes más cargado</div>{% if maximo > 0 %}{% for p in proyeccion if p[3] == maximo %}{% if loop.first %}<div class="big">{{ p[0] }}</div><div class="lbl">{{ p[3]|peso }}</div>{% endif %}{% endfor %}{% else %}<div class="big">—</div>{% endif %}</div>
+    <div class="card"><div class="lbl">Comprometido en 6 meses</div><div class="big">{{ comprometido|peso }}</div><div class="lbl">promedio {{ (comprometido / proyeccion|length)|peso }} por mes</div></div>
+    <div class="card"><div class="lbl">Mes más cargado</div>{% if maximo > 0 %}{% for p in proyeccion if p.total == maximo %}{% if loop.first %}<div class="big">{{ p.mes }}</div><div class="lbl">{{ p.total|peso }}</div>{% endif %}{% endfor %}{% else %}<div class="big">—</div>{% endif %}</div>
+    <div class="card"><div class="lbl">A cobrar de préstamos</div><div class="big cobrar">{{ a_cobrar|peso }}</div><div class="lbl">en los próximos 6 meses</div></div>
   </div>
 
   <div class="card">
     <h2>Próximos 6 meses</h2>
     {% if maximo > 0 %}
     <div class="grafico">
-      {% for mes_txt, de_subs, de_tarj, de_total in proyeccion %}
-      <div class="col" title="{{ mes_txt }}: gastos fijos {{ de_subs|peso }} · tarjetas {{ de_tarj|peso }}">
-        <div class="valor">{{ de_total|corto if de_total else '' }}</div>
-        <div class="pila" style="height:{{ de_total / maximo * 100 }}%">
-          {% if de_subs %}<i class="serie-subs" style="height:{{ de_subs / de_total * 100 }}%"></i>{% endif %}
-          {% if de_tarj %}<i class="serie-tarj" style="height:{{ de_tarj / de_total * 100 }}%"></i>{% endif %}
+      {% for p in proyeccion %}
+      <div class="col" title="{{ p.mes }}: gastos fijos {{ p.fijos|peso }} · tarjetas {{ p.tarjetas|peso }} · préstamos {{ p.debo|peso }}">
+        <div class="valor">{{ p.total|corto if p.total else '' }}</div>
+        <div class="pila" style="height:{{ p.total / maximo * 100 }}%">
+          {% if p.fijos %}<i class="serie-subs" style="height:{{ p.fijos / p.total * 100 }}%"></i>{% endif %}
+          {% if p.tarjetas %}<i class="serie-tarj" style="height:{{ p.tarjetas / p.total * 100 }}%"></i>{% endif %}
+          {% if p.debo %}<i class="serie-prest" style="height:{{ p.debo / p.total * 100 }}%"></i>{% endif %}
         </div>
       </div>
       {% endfor %}
     </div>
-    <div class="ejes">{% for p in proyeccion %}<span>{{ p[0][:3] }}</span>{% endfor %}</div>
+    <div class="ejes">{% for p in proyeccion %}<span>{{ p.mes[:3] }}</span>{% endfor %}</div>
     <div class="leyenda">
       <span style="--c:var(--acc)">Gastos fijos</span>
       <span style="--c:#e0884a">Tarjetas de crédito</span>
+      <span style="--c:#9b6bdf">Préstamos que debo</span>
     </div>
     {% else %}
-    <p class="lbl">Todavía no hay nada que proyectar. Carga gastos fijos o compras con tarjeta de crédito (con día de cierre y vencimiento) y acá vas a ver cuánto tienes comprometido cada mes.</p>
+    <p class="lbl">Todavía no hay nada que proyectar. Carga gastos fijos, préstamos o compras con tarjeta de crédito (con día de cierre y vencimiento) y acá vas a ver cuánto tienes comprometido cada mes.</p>
     {% endif %}
   </div>
 
   <div class="card">
     <h2>Detalle por mes</h2>
     <div class="wrap"><table>
-      <tr><th>Mes</th><th class="num">Gastos fijos</th><th class="num">Tarjetas de crédito</th><th class="num">Total</th></tr>
-      {% for mes_txt, de_subs, de_tarj, de_total in proyeccion %}
-      <tr><td>{{ mes_txt }}</td><td class="num">{{ de_subs|peso }}</td><td class="num">{{ de_tarj|peso }}</td><td class="num"><b>{{ de_total|peso }}</b></td></tr>
+      <tr><th>Mes</th><th class="num">Gastos fijos</th><th class="num">Tarjetas</th><th class="num">Préstamos</th><th class="num">Total</th><th class="num">A cobrar</th></tr>
+      {% for p in proyeccion %}
+      <tr><td>{{ p.mes }}</td><td class="num">{{ p.fijos|peso }}</td><td class="num">{{ p.tarjetas|peso }}</td><td class="num">{{ p.debo|peso }}</td><td class="num"><b>{{ p.total|peso }}</b></td><td class="num cobrar">{{ p.cobrar|peso }}</td></tr>
       {% endfor %}
     </table></div>
-    <p class="lbl">Solo incluye lo que ya está comprometido: gastos fijos (el mes en que se cobran, con el monto vigente) y resúmenes de tarjeta pendientes (el mes en que vencen, con las compras ya cargadas). Los resúmenes marcados como pagados no cuentan. Tus gastos del día a día no se pueden prever, así que no están.</p>
+    <p class="lbl">Solo incluye lo que ya está comprometido: gastos fijos (el mes en que se cobran, con el monto vigente), resúmenes de tarjeta pendientes (el mes en que vencen) y cuotas de préstamos sin pagar (las vencidas se suman al mes actual). "A cobrar" es lo que te deben y no se resta del total. Tus gastos del día a día no se pueden prever, así que no están.</p>
   </div>
 {% endblock %}

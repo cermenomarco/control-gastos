@@ -9,12 +9,14 @@ MEDIOS = {"tarjeta": "Tarjeta", "transferencia": "Transferencia", "efectivo": "E
 MODALIDADES = {"credito": "Crédito", "debito": "Débito"}
 TIPOS_FIJO = {"suscripcion": "Suscripción", "servicio": "Servicio", "impuesto": "Impuesto",
               "alquiler": "Alquiler", "otro": "Otro"}
+ROLES = {"acreedor": "Me deben", "deudor": "Debo"}
 FRECUENCIAS = {1: "Mensual", 2: "Bimestral", 3: "Trimestral", 6: "Semestral", 12: "Anual"}
 ERRORES = {
     "datos": "Revisa el monto (número mayor a 0), la fecha y el medio de pago.",
     "tarjeta": "Revisa la tarjeta: tipo, 4 dígitos y, si es de crédito, día de cierre y de vencimiento (1 a 31).",
     "cuotas": "Las cuotas deben ser un número entre 1 y 60.",
     "fijo": "Revisa el gasto fijo: nombre, monto mayor a 0, día de cobro (1 a 31), frecuencia y mes del primer cobro.",
+    "prestamo": "Revisa el préstamo: persona, monto mayor a 0, fechas, cuotas (1 a 120) y, si hay interés, un total a devolver mayor al monto.",
     "monto_fijo": "Revisa el nuevo monto (mayor a 0) y el mes desde el que rige.",
     "interes": "Si hay interés, indica el total a pagar (mayor al monto).",
     "banco": "El nombre del banco está vacío o ya existe.",
@@ -135,10 +137,25 @@ def cobra_en(fijo, anio, mes):
     return meses >= 0 and meses % fijo["frecuencia"] == 0
 
 
-def proyeccion(fijos, proximos, hoy, meses=6):
+def cuotas_prestamo(total, cuotas, primer_vencimiento):
+    """Calendario de un préstamo: una cuota por mes desde el primer vencimiento, mismo día.
+    La última absorbe el redondeo para que la suma dé exactamente el total."""
+    base = round(total / cuotas, 2)
+    filas = []
+    for k in range(cuotas):
+        a, m = sumar_meses(primer_vencimiento.year, primer_vencimiento.month, k)
+        monto = base if k < cuotas - 1 else round(total - base * (cuotas - 1), 2)
+        filas.append((k + 1, fecha_dia(a, m, primer_vencimiento.day), monto))
+    return filas
+
+
+def proyeccion(fijos, proximos, hoy, prestamos=(), meses=6):
     """Por mes: gastos fijos (según frecuencia, día de cobro y monto vigente) + resúmenes de tarjeta
-    pendientes (según su vencimiento). En el mes actual solo cuenta lo que falta cobrar.
-    fijos: lista de dicts con dia, frecuencia, mes_inicio y montos."""
+    pendientes (según su vencimiento) + cuotas de préstamos que debo. Aparte, lo que me tienen que pagar.
+    En el mes actual los fijos solo cuentan si falta cobrarlos; las cuotas de préstamo impagas
+    de meses anteriores (vencidas) se suman al mes actual.
+    fijos: dicts con dia, frecuencia, mes_inicio y montos. prestamos: (rol, vence, monto) impagas.
+    Devuelve dicts: mes, fijos, tarjetas, debo, total (lo que sale), cobrar."""
     filas = []
     for k in range(meses):
         anio, mes = sumar_meses(hoy.year, hoy.month, k)
@@ -149,7 +166,16 @@ def proyeccion(fijos, proximos, hoy, meses=6):
         )
         tarjetas = sum(p["a_pagar"] for p in proximos
                        if not p["pagado"] and (p["vence"].year, p["vence"].month) == (anio, mes))
-        filas.append((f"{MESES[mes - 1]} {anio}", subs, tarjetas, subs + tarjetas))
+        debo = cobrar = 0.0
+        for rol, vence, monto in prestamos:
+            del_mes = (vence.year, vence.month) == (anio, mes) or (k == 0 and vence < date(anio, mes, 1))
+            if del_mes:
+                if rol == "deudor":
+                    debo += monto
+                else:
+                    cobrar += monto
+        filas.append({"mes": f"{MESES[mes - 1]} {anio}", "fijos": subs, "tarjetas": tarjetas,
+                      "debo": debo, "total": subs + tarjetas + debo, "cobrar": cobrar})
     return filas
 
 

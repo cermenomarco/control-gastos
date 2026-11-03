@@ -55,6 +55,24 @@ TABLAS = [
            monto REAL NOT NULL,
            PRIMARY KEY (fijo_id, desde)
        )""",
+    """CREATE TABLE IF NOT EXISTS prestamos (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           persona TEXT NOT NULL,
+           rol TEXT NOT NULL,            -- 'acreedor' (yo presté) o 'deudor' (yo debo)
+           monto REAL NOT NULL,          -- lo prestado
+           total REAL NOT NULL,          -- lo que se devuelve (con intereses, si hay)
+           fecha TEXT NOT NULL,
+           cuotas INTEGER NOT NULL DEFAULT 1,
+           descripcion TEXT
+       )""",
+    """CREATE TABLE IF NOT EXISTS prestamo_cuotas (
+           prestamo_id INTEGER NOT NULL,
+           numero INTEGER NOT NULL,
+           vence TEXT NOT NULL,
+           monto REAL NOT NULL,
+           pagada INTEGER NOT NULL DEFAULT 0,
+           PRIMARY KEY (prestamo_id, numero)
+       )""",
 ]
 
 # Columnas que se fueron agregando a las tablas después de crearlas
