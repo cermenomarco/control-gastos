@@ -229,7 +229,7 @@ def cobros_pendientes(fijos, hoy, registrados):
     return pendientes
 
 
-def compromisos_fijos(fijos, hoy, meses, registrados, ccl):
+def compromisos_fijos(fijos, hoy, meses, registrados, ccl, detalle=None):
     """Lo que falta pagar de gastos fijos, por mes: cobros futuros y pendientes de confirmar.
     Los que se pagan con tarjeta de crédito cuentan en el mes en que vence su resumen.
     Los ya confirmados no cuentan acá: son gastos (y si fueron con tarjeta, ya están en el resumen)."""
@@ -244,7 +244,15 @@ def compromisos_fijos(fijos, hoy, meses, registrados, ccl):
             cuando = vencimiento_resumen(fecha, f["cierre"], f["venc"]) if f.get("cierre") and f.get("venc") else fecha
             cuando = max(cuando, este_mes)
             clave = (cuando.year, cuando.month)
-            por_mes[clave] = por_mes.get(clave, 0.0) + en_pesos(f, monto, ccl)
+            pesos = en_pesos(f, monto, ccl)
+            por_mes[clave] = por_mes.get(clave, 0.0) + pesos
+            if detalle is not None:  # para mostrar qué hay en cada mes
+                detalle.setdefault(clave, []).append({
+                    "tipo": "fijos", "nombre": f["nombre"], "monto": pesos, "fecha": fecha,
+                    "moneda": f.get("moneda"), "monto_original": monto,
+                    "tarjeta": f.get("tarjeta") if f.get("cierre") and f.get("venc") else None,
+                    "vence": cuando if f.get("cierre") and f.get("venc") else None,
+                })
     return por_mes
 
 
@@ -254,23 +262,31 @@ def proyeccion(fijos, proximos, hoy, prestamos=(), meses=6, registrados=None, cc
     Las cuotas de préstamo impagas de meses anteriores (vencidas) se suman al mes actual.
     fijos: dicts de gastos fijos. prestamos: (rol, vence, monto) impagas.
     Devuelve dicts: mes, fijos, tarjetas, debo, total (lo que sale), cobrar."""
-    fijos_por_mes = compromisos_fijos(fijos, hoy, meses, registrados or {}, ccl)
+    detalle_fijos = {}
+    fijos_por_mes = compromisos_fijos(fijos, hoy, meses, registrados or {}, ccl, detalle_fijos)
     filas = []
     for k in range(meses):
         anio, mes = sumar_meses(hoy.year, hoy.month, k)
         subs = fijos_por_mes.get((anio, mes), 0.0)
-        tarjetas = sum(p["a_pagar"] for p in proximos
-                       if not p["pagado"] and (p["vence"].year, p["vence"].month) == (anio, mes))
+        resumenes = [p for p in proximos if not p["pagado"] and (p["vence"].year, p["vence"].month) == (anio, mes)]
+        tarjetas = sum(p["a_pagar"] for p in resumenes)
+        items = sorted(detalle_fijos.get((anio, mes), []), key=lambda i: i["fecha"])
+        items += [{"tipo": "tarjetas", "nombre": p["tarjeta"], "monto": p["a_pagar"], "fecha": p["vence"],
+                   "usd": p.get("usd")} for p in resumenes]
         debo = cobrar = 0.0
-        for rol, vence, monto in prestamos:
+        for prestamo in prestamos:
+            rol, vence, monto = prestamo[:3]
+            persona = prestamo[3] if len(prestamo) > 3 else ""
             del_mes = (vence.year, vence.month) == (anio, mes) or (k == 0 and vence < date(anio, mes, 1))
             if del_mes:
                 if rol == "deudor":
                     debo += monto
-                else:
+                items.append({"tipo": "debo" if rol == "deudor" else "cobrar", "nombre": persona, "monto": monto,
+                              "fecha": vence, "vencida": vence < hoy})
+                if rol != "deudor":
                     cobrar += monto
         filas.append({"mes": f"{MESES[mes - 1]} {anio}", "fijos": subs, "tarjetas": tarjetas,
-                      "debo": debo, "total": subs + tarjetas + debo, "cobrar": cobrar})
+                      "debo": debo, "total": subs + tarjetas + debo, "cobrar": cobrar, "lista": items})
     return filas
 
 

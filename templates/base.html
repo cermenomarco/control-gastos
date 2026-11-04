@@ -158,6 +158,18 @@ a.card-enlace:hover{border-color:var(--ok)}
 .mes-partes{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--mut)}
 .mes-partes span{display:inline-flex;align-items:center;gap:6px}
 .mes-partes b{color:var(--txt);font-weight:500}
+details.mes-fila > summary{list-style:none;cursor:pointer}
+details.mes-fila > summary::-webkit-details-marker{display:none}
+details.mes-fila[data-vacio] > summary{cursor:default}
+.ver-detalle{margin-left:auto;color:var(--mut);text-decoration:underline;text-underline-offset:3px}
+details.mes-fila[open] .ver-detalle{display:none}
+.mes-items{list-style:none;margin:10px 0 0;padding:0}
+.mes-items li{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px dashed var(--line);font-size:14px}
+.mes-items li .marca-serie{margin-top:6px;flex:none}
+.mes-items li .cuerpo{flex:1;min-width:0}
+.mes-items li .lbl{font-size:12px}
+.mes-items li b{font-weight:600;white-space:nowrap}
+.marca-serie.ok-bg{background:var(--ok)}
 .mes-fila.destacado{background:color-mix(in srgb, var(--lima) 12%, transparent);margin:0 -12px;padding:14px 12px;border-radius:12px}
 .campo{display:flex;flex-direction:column;gap:6px}
 .campo > span{font:500 13px Inter;color:var(--mut)}

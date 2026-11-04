@@ -594,7 +594,7 @@ def renderizar(vista):
         for c in cuotas:
             c["vencida"] = not c["pagada"] and c["vence"] < hoy_
         vencidas += sum(c["vencida"] for c in cuotas)
-        impagas += [(rol, c["vence"], c["monto"]) for c in sin_pagar]
+        impagas += [(rol, c["vence"], c["monto"], persona) for c in sin_pagar]
         prestamos.setdefault(rol, []).append({
             "id": pid, "persona": persona, "monto": monto, "total": total_p, "intereses": total_p - monto,
             "fecha": date.fromisoformat(fecha), "descripcion": desc, "cuotas": cuotas,

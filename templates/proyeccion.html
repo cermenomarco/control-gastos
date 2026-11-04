@@ -11,7 +11,7 @@
   </div>
 
   <div class="stats">
-    <div class="stat"><div class="lbl">Comprometido</div><div class="big">{{ comprometido|peso }}</div><div class="chico">{{ (comprometido / proyeccion|length)|peso }} por mes</div></div>
+    <div class="stat"><div class="lbl">Comprometido</div><div class="big">{{ comprometido|peso }}</div><div class="chico">{{ proyeccion[0].mes[:3]|lower }} {{ proyeccion[0].mes[-4:] }} a {{ proyeccion[-1].mes[:3]|lower }} {{ proyeccion[-1].mes[-4:] }}</div></div>
     <div class="stat"><div class="lbl">Mes más cargado</div>{% if maximo > 0 %}{% for p in proyeccion if p.total == maximo %}{% if loop.first %}<div class="big">{{ p.mes.split(' ')[0] }}</div><div class="chico">{{ p.total|peso }}</div>{% endif %}{% endfor %}{% else %}<div class="big">—</div>{% endif %}</div>
     <div class="stat"><div class="lbl">A cobrar de préstamos</div><div class="big ok">{{ a_cobrar|peso }}</div><div class="chico">no se resta del total</div></div>
   </div>
@@ -48,23 +48,50 @@
     <div class="cabeza"><h2>Detalle</h2></div>
     <div class="meses">
       {% for p in proyeccion %}
-      <div class="mes-fila{% if loop.first %} actual{% endif %}" id="mes-{{ loop.index }}">
-        <div class="mes-cab"><span>{{ p.mes }}{% if loop.first %} <span class="lbl">· este mes</span>{% endif %}</span><b>{{ p.total|peso }}</b></div>
-        {% if p.total %}
-        <div class="mes-barra" aria-hidden="true">
-          {% for clave, rotulo, clase in SERIES if p[clave] %}<i class="{{ clase }}" style="width:{{ p[clave] / maximo * 100 }}%"></i>{% endfor %}
-        </div>
-        <div class="mes-partes">
-          {% for clave, rotulo, clase in SERIES if p[clave] %}<span><span class="marca-serie {{ clase }}"></span>{{ {'fijos': 'Fijos', 'tarjetas': 'Tarjetas', 'debo': 'Préstamos'}[clave] }} <b>{{ p[clave]|peso }}</b></span>{% endfor %}
-          {% if p.cobrar %}<span class="ok">+ {{ p.cobrar|peso }} a cobrar</span>{% endif %}
-        </div>
-        {% else %}
-        <div class="mes-partes" style="margin-top:4px"><span>Nada comprometido</span>{% if p.cobrar %}<span class="ok">+ {{ p.cobrar|peso }} a cobrar</span>{% endif %}</div>
+      <details class="mes-fila{% if loop.first %} actual{% endif %}" id="mes-{{ loop.index }}"{% if not p.lista %} data-vacio{% endif %}>
+        <summary>
+          <div class="mes-cab"><span>{{ p.mes }}{% if loop.first %} <span class="lbl">· este mes</span>{% endif %}</span><b>{{ p.total|peso }}</b></div>
+          {% if p.total %}
+          <div class="mes-barra" aria-hidden="true">
+            {% for clave, rotulo, clase in SERIES if p[clave] %}<i class="{{ clase }}" style="width:{{ p[clave] / maximo * 100 }}%"></i>{% endfor %}
+          </div>
+          {% endif %}
+          <div class="mes-partes"{% if not p.total %} style="margin-top:4px"{% endif %}>
+            {% for clave, rotulo, clase in SERIES if p[clave] %}<span><span class="marca-serie {{ clase }}"></span>{{ {'fijos': 'Fijos', 'tarjetas': 'Tarjetas', 'debo': 'Préstamos'}[clave] }} <b>{{ p[clave]|peso }}</b></span>{% endfor %}
+            {% if not p.total %}<span>Nada comprometido</span>{% endif %}
+            {% if p.cobrar %}<span class="ok">+ {{ p.cobrar|peso }} a cobrar</span>{% endif %}
+            {% if p.lista %}<span class="ver-detalle">Ver qué es</span>{% endif %}
+          </div>
+        </summary>
+        {% if p.lista %}
+        <ul class="mes-items">
+          {% for i in p.lista %}
+          <li>
+            <span class="marca-serie {{ {'fijos': 's1', 'tarjetas': 's2', 'debo': 's3', 'cobrar': 'ok-bg'}[i.tipo] }}"></span>
+            <div class="cuerpo">
+              {% if i.tipo == 'fijos' %}
+                <div>{{ i.nombre }}{% if i.moneda == 'USD' %} <span class="lbl">· {{ i.monto_original|usd }}</span>{% endif %}</div>
+                <div class="lbl">{% if i.tarjeta %}Cobro del {{ i.fecha|fecha_corta }} con {{ i.tarjeta }} · lo pagás con el resumen que vence el {{ i.vence|fecha_corta }}{% else %}Se cobra el {{ i.fecha|fecha_corta }}{% endif %}</div>
+              {% elif i.tipo == 'tarjetas' %}
+                <div>Resumen {{ i.nombre }}</div>
+                <div class="lbl">Vence el {{ i.fecha|fecha_corta }} · tus compras con esta tarjeta{% if i.usd %} (incluye {{ i.usd|usd }}){% endif %}</div>
+              {% elif i.tipo == 'debo' %}
+                <div>Cuota a {{ i.nombre }}</div>
+                <div class="lbl">{% if i.vencida %}Venció el {{ i.fecha|fecha_corta }}{% else %}Vence el {{ i.fecha|fecha_corta }}{% endif %}</div>
+              {% else %}
+                <div>Te paga {{ i.nombre }}</div>
+                <div class="lbl">Cuota del {{ i.fecha|fecha_corta }} · no se resta del total</div>
+              {% endif %}
+            </div>
+            <b class="{{ 'ok' if i.tipo == 'cobrar' }}">{{ '+ ' if i.tipo == 'cobrar' }}{{ i.monto|peso }}</b>
+          </li>
+          {% endfor %}
+        </ul>
         {% endif %}
-      </div>
+      </details>
       {% endfor %}
     </div>
-    <p class="lbl" style="margin-bottom:0">Incluye gastos fijos (el mes en que se cobran, con el monto vigente), resúmenes de tarjeta sin pagar (el mes en que vencen) y cuotas de préstamos sin pagar (las vencidas se suman a este mes). Tus gastos del día a día no se pueden prever, así que no están.</p>
+    <p class="lbl" style="margin-bottom:0">Tocá un mes para ver qué es cada monto. Cada cosa cuenta el mes en que sale la plata: los gastos fijos que pagás con tarjeta de crédito, el mes en que vence el resumen donde entran (por eso un cobro de diciembre puede aparecer en enero). Los resúmenes ya cerrados o abiertos aparecen en el mes en que vencen y las cuotas de préstamos vencidas se suman a este mes. Lo que gastás día a día no se puede prever, así que no está.</p>
   </section>
 {% endblock %}
 {% block scripts %}
@@ -76,6 +103,7 @@ document.querySelectorAll('.grafico .col').forEach(function (col) {
     if (!fila) return;
     document.querySelectorAll('.mes-fila.destacado').forEach(function (f) { f.classList.remove('destacado'); });
     fila.classList.add('destacado');
+    fila.open = true;
     fila.scrollIntoView({behavior: 'smooth', block: 'nearest'});
   });
 });
