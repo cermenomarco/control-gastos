@@ -131,6 +131,34 @@ input::placeholder{color:var(--mut)}
 input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ok);outline-offset:2px}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-items:end}
 .form .ancho{grid-column:1/-1}
+.form > *,.campo{min-width:0}
+/* Fechas en el celular (sobre todo iPhone): mismo alto, alineadas a la izquierda y sin desbordarse */
+input[type=date],input[type=month]{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;text-align:left;line-height:22px}
+input[type=date]::-webkit-date-and-time-value,input[type=month]::-webkit-date-and-time-value{text-align:left;min-height:22px}
+input[type=date]::-webkit-calendar-picker-indicator,input[type=month]::-webkit-calendar-picker-indicator{opacity:.6}
+@media (max-width:480px){.form .fecha-campo{grid-column:1/-1}}
+.botonera{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.botonera .btn{padding-left:8px;padding-right:8px;justify-content:center;text-align:center}
+/* Tarjeta que es un enlace (ej: Usuarios en Mi cuenta) */
+a.card-enlace{display:flex;align-items:center;gap:14px;color:inherit;text-decoration:none}
+a.card-enlace .cuerpo{flex:1;min-width:0}
+a.card-enlace .titulo{font-weight:600}
+a.card-enlace .detalle{font-size:13px;color:var(--mut)}
+a.card-enlace:hover{border-color:var(--ok)}
+/* Proyección: detalle por mes */
+.meses{display:flex;flex-direction:column}
+.mes-fila{padding:14px 0;border-bottom:1px solid var(--line)}
+.mes-fila:last-child{border-bottom:none}
+.mes-fila.actual .mes-cab span{font-weight:600}
+.mes-cab{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.mes-cab b{font:600 17px Poppins;white-space:nowrap}
+.mes-barra{display:flex;height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin:8px 0 6px}
+.mes-barra i{display:block;height:100%}
+.mes-barra i + i{margin-left:2px}
+.mes-partes{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--mut)}
+.mes-partes span{display:inline-flex;align-items:center;gap:6px}
+.mes-partes b{color:var(--txt);font-weight:500}
+.mes-fila.destacado{background:color-mix(in srgb, var(--lima) 12%, transparent);margin:0 -12px;padding:14px 12px;border-radius:12px}
 .campo{display:flex;flex-direction:column;gap:6px}
 .campo > span{font:500 13px Inter;color:var(--mut)}
 .check{display:flex;align-items:center;gap:10px;min-height:48px;font-weight:500}

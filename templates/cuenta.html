@@ -21,7 +21,7 @@
     </div>
   </section>
   {% if usuario.es_admin %}
-  <a class="card fila evento" href="{{ url_for('ver_usuarios') }}" style="display:flex">
+  <a class="card card-enlace" href="{{ url_for('ver_usuarios') }}">
     <span class="ico">{{ icono('usuarios', 18) }}</span>
     <div class="cuerpo"><div class="titulo">Usuarios</div><div class="detalle">Creá cuentas para tu familia y restablecé contraseñas.</div></div>
     <span style="color:var(--mut)">{{ icono('flecha', 18) }}</span>

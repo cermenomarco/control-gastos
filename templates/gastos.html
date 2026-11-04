@@ -10,11 +10,11 @@
   <details class="card plegable"{% if filtros.dia or filtros.tarjeta or filtros.banco %} open{% endif %}>
     <summary><span class="mini" style="display:flex;gap:8px;align-items:center">{{ icono('filtro', 18) }} Filtrar</span></summary>
     <form class="form" method="get" action="{{ url_for('ver_gastos') }}">
-      <label class="campo"><span>Mes</span><input type="month" name="mes" value="{{ filtros.mes }}"></label>
-      <label class="campo"><span>Día</span><input type="date" name="dia" value="{{ filtros.dia }}"></label>
+      <label class="campo fecha-campo"><span>Mes</span><input type="month" name="mes" value="{{ filtros.mes }}"></label>
+      <label class="campo fecha-campo"><span>Día</span><input type="date" name="dia" value="{{ filtros.dia }}"></label>
       <label class="campo"><span>Tarjeta</span><select name="tarjeta_id"><option value="">Todas</option>{% for tid, etiqueta, modalidad, info in tarjetas %}<option value="{{ tid }}"{% if tid == filtros.tarjeta %} selected{% endif %}>{{ etiqueta }}</option>{% endfor %}</select></label>
       <label class="campo"><span>Banco</span><select name="banco_id"><option value="">Todos</option>{% for bid, nombre in bancos %}<option value="{{ bid }}"{% if bid == filtros.banco %} selected{% endif %}>{{ nombre }}</option>{% endfor %}</select></label>
-      <div class="ancho" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <div class="ancho botonera">
         <button class="btn">Filtrar</button>
         <a class="btn sec" href="{{ url_for('ver_gastos') }}">Este mes</a>
         <a class="btn sec" href="{{ url_for('ver_gastos', mes='') }}">Todos</a>

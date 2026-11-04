@@ -19,9 +19,9 @@
   <section class="card">
     <div class="cabeza"><h2>Mes a mes</h2></div>
     {% if maximo > 0 %}
-    <div class="grafico" role="img" aria-label="Gráfico de barras apiladas: compromisos de los próximos 6 meses. El detalle está en la tabla de abajo.">
+    <div class="grafico" role="img" aria-label="Gráfico de barras apiladas: compromisos de los próximos 6 meses. El detalle está en la lista de abajo.">
       {% for p in proyeccion %}
-      <div class="col" tabindex="0" aria-label="{{ p.mes }}: {{ p.total|peso }}">
+      <div class="col" tabindex="0" data-mes="{{ loop.index }}" aria-label="{{ p.mes }}: {{ p.total|peso }}">
         <div class="valor">{{ p.total|corto if p.total == maximo else '' }}</div>
         <div class="pila" style="height:{{ p.total / maximo * 100 }}%">
           {% for clave, rotulo, clase in SERIES if p[clave] %}<i class="{{ clase }}" style="height:{{ p[clave] / p.total * 100 }}%"></i>{% endfor %}
@@ -35,7 +35,7 @@
       {% endfor %}
     </div>
     <div class="ejes">{% for p in proyeccion %}<span>{{ p.mes[:3] }}</span>{% endfor %}</div>
-    <p class="lbl" style="margin:12px 0 0">Tocá una barra para ver el detalle de ese mes.</p>
+    <p class="lbl" style="margin:12px 0 0">Tocá una barra para ver ese mes en el detalle.</p>
     <div class="leyenda">
       {% for clave, rotulo, clase in SERIES %}<span><span class="marca-serie {{ clase }}"></span>{{ rotulo }}</span>{% endfor %}
     </div>
@@ -46,14 +46,38 @@
 
   <section class="card">
     <div class="cabeza"><h2>Detalle</h2></div>
-    <div class="scroll"><table>
-      <thead><tr><th>Mes</th><th class="num">Fijos</th><th class="num">Tarjetas</th><th class="num">Préstamos</th><th class="num">Total</th><th class="num">A cobrar</th></tr></thead>
-      <tbody>
+    <div class="meses">
       {% for p in proyeccion %}
-      <tr><td>{{ p.mes }}</td><td class="num">{{ p.fijos|peso }}</td><td class="num">{{ p.tarjetas|peso }}</td><td class="num">{{ p.debo|peso }}</td><td class="num"><b>{{ p.total|peso }}</b></td><td class="num ok">{{ p.cobrar|peso }}</td></tr>
+      <div class="mes-fila{% if loop.first %} actual{% endif %}" id="mes-{{ loop.index }}">
+        <div class="mes-cab"><span>{{ p.mes }}{% if loop.first %} <span class="lbl">· este mes</span>{% endif %}</span><b>{{ p.total|peso }}</b></div>
+        {% if p.total %}
+        <div class="mes-barra" aria-hidden="true">
+          {% for clave, rotulo, clase in SERIES if p[clave] %}<i class="{{ clase }}" style="width:{{ p[clave] / maximo * 100 }}%"></i>{% endfor %}
+        </div>
+        <div class="mes-partes">
+          {% for clave, rotulo, clase in SERIES if p[clave] %}<span><span class="marca-serie {{ clase }}"></span>{{ {'fijos': 'Fijos', 'tarjetas': 'Tarjetas', 'debo': 'Préstamos'}[clave] }} <b>{{ p[clave]|peso }}</b></span>{% endfor %}
+          {% if p.cobrar %}<span class="ok">+ {{ p.cobrar|peso }} a cobrar</span>{% endif %}
+        </div>
+        {% else %}
+        <div class="mes-partes" style="margin-top:4px"><span>Nada comprometido</span>{% if p.cobrar %}<span class="ok">+ {{ p.cobrar|peso }} a cobrar</span>{% endif %}</div>
+        {% endif %}
+      </div>
       {% endfor %}
-      </tbody>
-    </table></div>
+    </div>
     <p class="lbl" style="margin-bottom:0">Incluye gastos fijos (el mes en que se cobran, con el monto vigente), resúmenes de tarjeta sin pagar (el mes en que vencen) y cuotas de préstamos sin pagar (las vencidas se suman a este mes). Tus gastos del día a día no se pueden prever, así que no están.</p>
   </section>
+{% endblock %}
+{% block scripts %}
+<script>
+// Tocar una barra resalta ese mes en el detalle de abajo
+document.querySelectorAll('.grafico .col').forEach(function (col) {
+  col.addEventListener('click', function () {
+    var fila = document.getElementById('mes-' + col.dataset.mes);
+    if (!fila) return;
+    document.querySelectorAll('.mes-fila.destacado').forEach(function (f) { f.classList.remove('destacado'); });
+    fila.classList.add('destacado');
+    fila.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  });
+});
+</script>
 {% endblock %}
