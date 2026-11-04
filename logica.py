@@ -13,6 +13,7 @@ TIPOS_FIJO = {"suscripcion": "Suscripción", "servicio": "Servicio", "impuesto":
 ROLES = {"acreedor": "Me deben", "deudor": "Debo"}
 FRECUENCIAS = {1: "Mensual", 2: "Bimestral", 3: "Trimestral", 6: "Semestral", 12: "Anual"}
 ERRORES = {
+    "cobro_pasado": "Revisá la fecha del cobro: tiene que ser hoy o un día que ya pasó.",
     "datos": "Revisá el monto (mayor a 0), la fecha y el medio de pago.",
     "tarjeta": "Revisá la tarjeta: tipo, los 4 dígitos y, si es de crédito, el día de cierre y de vencimiento (1 a 31).",
     "cuotas": "Las cuotas van de 1 a 60.",

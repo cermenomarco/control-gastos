@@ -135,6 +135,11 @@ input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visi
 .campo > span{font:500 13px Inter;color:var(--mut)}
 .check{display:flex;align-items:center;gap:10px;min-height:48px;font-weight:500}
 .check input{width:20px;height:20px;min-height:0;accent-color:var(--cascara)}
+.check .lbl{font-weight:400}
+details.mini-plegable{margin-top:16px}
+details.mini-plegable > summary{cursor:pointer;color:var(--mut);font-size:14px;list-style:none;text-decoration:underline;text-underline-offset:3px}
+details.mini-plegable > summary::-webkit-details-marker{display:none}
+details.mini-plegable[open] > summary{color:var(--txt);text-decoration:none;font-weight:600}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:12px 24px;border-radius:999px;
   border:2px solid var(--lima);background:var(--lima);color:var(--tinta);font:600 15px Poppins;cursor:pointer;text-decoration:none}
 .btn:hover{filter:brightness(.96)}

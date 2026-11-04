@@ -995,16 +995,27 @@ def agregar_fijo():
             or frecuencia not in FRECUENCIAS or not mes_valido(inicio)):
         return redirect(url_for("ver_fijos", error="fijo"))
     moneda = "USD" if form.get("moneda") == "USD" else "ARS"
+    primer_cobro = None
+    if form.get("ya_cobro"):  # te suscribiste hace poco y el primer cobro ya se hizo
+        try:
+            primer_cobro = date.fromisoformat(form.get("fecha_primer_cobro", ""))
+        except ValueError:
+            return redirect(url_for("ver_fijos", error="cobro_pasado"))
+        if primer_cobro > hoy:
+            return redirect(url_for("ver_fijos", error="cobro_pasado"))
+        inicio = min(inicio, primer_cobro.strftime("%Y-%m"))
     con = conectar()
     cur = con.execute(
         """INSERT INTO fijos (nombre, tipo, dia_cobro, frecuencia, mes_inicio, tarjeta_id, moneda, confirmar_desde)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (nombre, tipo, dia, frecuencia, inicio, a_int(form.get("tarjeta_id")), moneda, hoy.isoformat()),
     )
-    con.execute("INSERT INTO fijos_montos (fijo_id, desde, monto) VALUES (?, ?, ?)", (cur.lastrowid, inicio, monto))
+    fijo_id = cur.lastrowid
+    con.execute("INSERT INTO fijos_montos (fijo_id, desde, monto) VALUES (?, ?, ?)", (fijo_id, inicio, monto))
+    error = registrar_cobro(con, fijo_id, primer_cobro) if primer_cobro else None
     con.commit()
     con.close()
-    return redirect(url_for("ver_fijos"))
+    return redirect(url_for("ver_fijos", error=error) if error else url_for("ver_fijos"))
 
 
 @app.post("/fijos/<int:id_>/monto")
@@ -1053,6 +1064,64 @@ CATEGORIA_FIJO = {"suscripcion": "suscripciones", "servicio": "servicios", "impu
                   "alquiler": "alquiler", "otro": "otros"}
 
 
+def registrar_cobro(con, id_, dia, monto_texto=None):
+    """Anota que un gasto fijo se cobró ese día y lo registra como gasto (con su tarjeta, si tiene).
+    monto_texto: lo que vino de verdad; vacío = el monto vigente. Devuelve un código de error o None."""
+    fecha = dia.isoformat()
+    fijo = con.execute(
+        """SELECT f.nombre, f.tipo, COALESCE(f.moneda, 'ARS'), f.tarjeta_id,
+                  (SELECT monto FROM fijos_montos WHERE fijo_id = f.id AND desde <= ? ORDER BY desde DESC LIMIT 1),
+                  (SELECT monto FROM fijos_montos WHERE fijo_id = f.id ORDER BY desde LIMIT 1)
+           FROM fijos f WHERE f.id = ?""", (fecha[:7], id_)).fetchone()
+    if not fijo:
+        return "datos"
+    if con.execute("SELECT 1 FROM fijo_cobros WHERE fijo_id = ? AND fecha = ?", (id_, fecha)).fetchone():
+        return None  # ya estaba anotado
+    nombre, tipo, moneda, tarjeta_id, vigente, primero = fijo
+    try:
+        monto = a_monto(monto_texto) if (monto_texto or "").strip() else (vigente or primero)
+    except ValueError:
+        monto = 0
+    if not monto or monto <= 0:
+        return "datos"
+    monto_usd = cotizacion_usada = None
+    if moneda == "USD":
+        dato = cotizacion.ccl_de(dia)
+        if not dato:
+            cotizacion.actualizar()
+            dato = cotizacion.ccl_de(dia)
+        if not dato:
+            return "sin_ccl"
+        monto_usd, cotizacion_usada = monto, dato["valor"]
+        monto = round(monto_usd * cotizacion_usada, 2)
+    cur = con.execute(
+        """INSERT INTO gastos (fecha, monto, categoria, descripcion, medio, tarjeta_id, cuotas, con_interes,
+                               moneda, monto_usd, cotizacion, fijo_id)
+           VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)""",
+        (fecha, monto, CATEGORIA_FIJO.get(tipo, "otros"), nombre, "tarjeta" if tarjeta_id else "transferencia",
+         tarjeta_id, moneda, monto_usd, cotizacion_usada, id_),
+    )
+    con.execute("INSERT INTO fijo_cobros (fijo_id, fecha, estado, gasto_id) VALUES (?, ?, 'cobrado', ?)",
+                (id_, fecha, cur.lastrowid))
+    return None
+
+
+@app.post("/fijos/<int:id_>/cobro-pasado")
+def cobro_pasado(id_):
+    """Registra un cobro que ya pasó y no estaba anotado (por ejemplo, el primero, el día que te suscribiste)."""
+    try:
+        dia = date.fromisoformat(request.form.get("fecha", ""))
+    except ValueError:
+        dia = None
+    if not dia or dia > date.today():
+        return redirect(url_for("ver_fijos", error="cobro_pasado", fijo=id_))
+    con = conectar()
+    error = registrar_cobro(con, id_, dia, request.form.get("monto"))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_fijos", error=error, fijo=id_) if error else url_for("ver_fijos", fijo=id_))
+
+
 @app.post("/fijos/<int:id_>/cobro/<fecha>")
 def confirmar_cobro(id_, fecha):
     """El día del cobro la app pregunta si se cobró:
@@ -1075,41 +1144,10 @@ def confirmar_cobro(id_, fecha):
     elif accion == "fallido":
         con.execute("INSERT OR REPLACE INTO fijo_cobros (fijo_id, fecha, estado) VALUES (?, ?, 'fallido')", (id_, fecha))
     elif accion == "cobrado":
-        fijo = con.execute(
-            """SELECT f.nombre, f.tipo, COALESCE(f.moneda, 'ARS'), f.tarjeta_id,
-                      (SELECT monto FROM fijos_montos WHERE fijo_id = f.id AND desde <= ? ORDER BY desde DESC LIMIT 1)
-               FROM fijos f WHERE f.id = ?""", (fecha[:7], id_)).fetchone()
-        if not fijo or con.execute("SELECT 1 FROM fijo_cobros WHERE fijo_id = ? AND fecha = ?", (id_, fecha)).fetchone():
+        error = registrar_cobro(con, id_, dia, form.get("monto"))
+        if error:
             con.close()
-            return redirect(url_for(volver))
-        nombre, tipo, moneda, tarjeta_id, vigente = fijo
-        try:  # el monto que vino de verdad (si no lo cambiaste, el vigente)
-            monto = a_monto(form["monto"]) if form.get("monto", "").strip() else vigente
-        except ValueError:
-            monto = 0
-        if not monto or monto <= 0:
-            con.close()
-            return redirect(url_for(volver, error="datos"))
-        monto_usd = cotizacion_usada = None
-        if moneda == "USD":
-            dato = cotizacion.ccl_de(dia)
-            if not dato:
-                cotizacion.actualizar()
-                dato = cotizacion.ccl_de(dia)
-            if not dato:
-                con.close()
-                return redirect(url_for(volver, error="sin_ccl"))
-            monto_usd, cotizacion_usada = monto, dato["valor"]
-            monto = round(monto_usd * cotizacion_usada, 2)
-        cur = con.execute(
-            """INSERT INTO gastos (fecha, monto, categoria, descripcion, medio, tarjeta_id, cuotas, con_interes,
-                                   moneda, monto_usd, cotizacion, fijo_id)
-               VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)""",
-            (fecha, monto, CATEGORIA_FIJO.get(tipo, "otros"), nombre, "tarjeta" if tarjeta_id else "transferencia",
-             tarjeta_id, moneda, monto_usd, cotizacion_usada, id_),
-        )
-        con.execute("INSERT INTO fijo_cobros (fijo_id, fecha, estado, gasto_id) VALUES (?, ?, 'cobrado', ?)",
-                    (id_, fecha, cur.lastrowid))
+            return redirect(url_for(volver, error=error))
     con.commit()
     con.close()
     return redirect(url_for(volver))

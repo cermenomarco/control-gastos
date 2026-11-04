@@ -17,7 +17,7 @@
   <section class="card">
     <div class="cabeza"><h2>Tus gastos fijos</h2><span class="mini">{{ activos|length }}</span></div>
     {% for f in activos %}
-    <details class="plegable" style="border-bottom:1px solid var(--line)">
+    <details class="plegable" id="fijo-{{ f.id }}" style="border-bottom:1px solid var(--line)">
       <summary>
         <div class="fila" style="flex:1;border:none">
           <span class="ico">{{ icono(ICONO_TIPO.get(f.tipo, 'etiqueta'), 18) }}</span>
@@ -54,6 +54,14 @@
           {% endfor %}
         </div>
         {% endif %}
+        <details class="mini-plegable"{% if request.args.get('fijo') == f.id|string and request.args.get('error') %} open{% endif %}>
+          <summary>¿Te cobraron uno que no aparece? Registrarlo</summary>
+          <form class="form" method="post" action="{{ url_for('cobro_pasado', id_=f.id) }}" style="margin-top:8px">
+            <label class="campo"><span>Día del cobro</span><input type="date" name="fecha" value="{{ hoy }}" max="{{ hoy }}" required></label>
+            <label class="campo"><span>Monto ({{ 'US$' if f.moneda == 'USD' else '$' }}, si fue distinto)</span><input name="monto" inputmode="decimal" placeholder="{{ f.monto|usd if f.moneda == 'USD' else f.monto|peso }}"></label>
+            <div><button class="btn sec chico">{{ icono('ok', 14) }} Anotar como cobrado</button></div>
+          </form>
+        </details>
         {% if f.anteriores %}
         <p class="lbl" style="margin:12px 0 0">Antes: {% for desde, monto in f.anteriores %}{{ monto|usd if f.moneda == 'USD' else monto|peso }} desde {{ desde|mes }}{{ ' · ' if not loop.last }}{% endfor %}</p>
         {% endif %}
@@ -97,7 +105,7 @@
     <form class="form" method="post" action="{{ url_for('agregar_fijo') }}">
       <label class="campo"><span>Nombre</span><input name="nombre" placeholder="Ej: Netflix, luz, ABL" required></label>
       <label class="campo"><span>Tipo</span><select name="tipo">{% for k, v in tipos_fijo.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
-      <div class="campo"><span>Monto de cada cobro</span>
+      <div class="campo ancho"><span>Monto de cada cobro</span>
         <div class="monto-moneda">
           <div class="seg-moneda" role="radiogroup" aria-label="Moneda">
             <label><input type="radio" name="moneda" value="ARS" checked><span>$</span></label>
@@ -110,6 +118,11 @@
       <label class="campo"><span>Frecuencia</span><select name="frecuencia" id="frecuencia" onchange="cambiarFrecuencia()">{% for k, v in frecuencias.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
       <label class="campo" id="mes-inicio"><span>Mes del primer cobro</span><input type="month" name="mes_inicio" value="{{ mes_actual }}"></label>
       <label class="campo"><span>Tarjeta (opcional)</span><select name="tarjeta_id"><option value="">Ninguna</option>{% for tid, etiqueta, modalidad, info in tarjetas %}<option value="{{ tid }}">{{ etiqueta }}</option>{% endfor %}</select></label>
+      <div class="ancho ya-cobro">
+        <label class="check"><input type="checkbox" name="ya_cobro" id="ya-cobro" onchange="cambiarYaCobro()"> <span>Ya me cobraron el primero <span class="lbl">(por ejemplo, te suscribiste y te cobró en el momento)</span></span></label>
+        <label class="campo hidden" id="fecha-primer-cobro"><span>¿Qué día te lo cobraron?</span><input type="date" name="fecha_primer_cobro" value="{{ hoy }}" max="{{ hoy }}"></label>
+        <p class="lbl hidden" id="ya-cobro-ayuda" style="margin:0">Lo anoto como gasto en esa fecha y en las proyecciones queda solo lo que viene.</p>
+      </div>
       <div class="ancho"><button class="btn">Agregar</button></div>
     </form>
   </details>
@@ -120,5 +133,14 @@ function cambiarFrecuencia() {
   document.getElementById('mes-inicio').classList.toggle('hidden', document.getElementById('frecuencia').value === '1');
 }
 cambiarFrecuencia();
+function cambiarYaCobro() {
+  var si = document.getElementById('ya-cobro').checked;
+  document.getElementById('fecha-primer-cobro').classList.toggle('hidden', !si);
+  document.getElementById('ya-cobro-ayuda').classList.toggle('hidden', !si);
+}
+cambiarYaCobro();
+// Al abrir un gasto fijo desde un enlace (o con un error), se despliega solo
+var abierto = new URLSearchParams(location.search).get('fijo');
+if (abierto) { var d = document.getElementById('fijo-' + abierto); if (d) { d.open = true; d.scrollIntoView({block: 'center'}); } }
 </script>
 {% endblock %}
