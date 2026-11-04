@@ -14,7 +14,7 @@ import time
 os.environ["TZ"] = os.environ.get("MARQUITO_TZ", "America/Argentina/Buenos_Aires")
 if hasattr(time, "tzset"):
     time.tzset()
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from markupsafe import Markup
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for
@@ -35,6 +35,8 @@ from logica import (
     TIPOS_TARJETA,
     a_int,
     a_monto,
+    agrupar_reintegros,
+    clave_persona,
     cobra_en,
     cobros_fijo,
     cobros_pendientes,
@@ -45,6 +47,7 @@ from logica import (
     fecha_dia,
     gajos,
     monto_vigente,
+    parte_propia,
     periodo_de,
     proximo_cobro,
     proyeccion,
@@ -359,7 +362,7 @@ def armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo,
     con = conectar()
     gastos_por_dia = {
         date.fromisoformat(f): (n, s) for f, n, s in con.execute(
-            "SELECT fecha, COUNT(*), SUM(monto) FROM gastos WHERE fecha BETWEEN ? AND ? GROUP BY fecha",
+            "SELECT fecha, COUNT(*), SUM(COALESCE(mi_parte, monto)) FROM gastos WHERE fecha BETWEEN ? AND ? GROUP BY fecha",
             (desde.isoformat(), hasta.isoformat()))
     }
     con.close()
@@ -387,12 +390,13 @@ def renderizar(vista):
     con = conectar()
     mes = date.today().strftime("%Y-%m")
     total, cantidad = con.execute(
-        "SELECT COALESCE(SUM(monto), 0), COUNT(*) FROM gastos WHERE fecha LIKE ?",
+        "SELECT COALESCE(SUM(COALESCE(mi_parte, monto)), 0), COUNT(*) FROM gastos WHERE fecha LIKE ?",
         (mes + "%",),
     ).fetchone()
     por_cat = con.execute(
-        """SELECT categoria, SUM(monto) FROM gastos WHERE fecha LIKE ?
-           GROUP BY categoria ORDER BY SUM(monto) DESC""",
+        """SELECT categoria, SUM(COALESCE(mi_parte, monto)) FROM gastos WHERE fecha LIKE ?
+           GROUP BY categoria HAVING SUM(COALESCE(mi_parte, monto)) > 0
+           ORDER BY SUM(COALESCE(mi_parte, monto)) DESC""",
         (mes + "%",),
     ).fetchall()
     filtros = {"mes": "", "dia": "", "tarjeta": None, "banco": None}
@@ -435,7 +439,23 @@ def renderizar(vista):
             params,
         )
     ]
-    total_filtrado = sum(f[2] for f in filas)
+    # Reintegros: qué te deben de cada gasto; a los totales solo entra tu parte
+    reint_gasto, pendientes_reint = {}, []
+    for rid, gid, persona, monto_r, moneda_r, monto_mon, estado, devuelto, fecha_dev, g_fecha, g_desc, g_cat in con.execute(
+        """SELECT r.id, r.gasto_id, r.persona, r.monto, r.moneda, r.monto_moneda, r.estado, r.devuelto, r.fecha_devuelto,
+                  g.fecha, g.descripcion, g.categoria
+           FROM reintegros r JOIN gastos g ON g.id = r.gasto_id ORDER BY g.fecha, r.id"""
+    ):
+        r = {"id": rid, "gasto_id": gid, "persona": persona, "monto": monto_r, "moneda": moneda_r,
+             "monto_moneda": monto_mon, "estado": estado, "devuelto": devuelto,
+             "fecha_devuelto": date.fromisoformat(fecha_dev) if fecha_dev else None,
+             "fecha": date.fromisoformat(g_fecha), "gasto": g_desc or (g_cat or "").capitalize()}
+        reint_gasto.setdefault(gid, []).append(r)
+        if estado == "pendiente":
+            pendientes_reint.append(r)
+    mi_parte = dict(con.execute("SELECT id, mi_parte FROM gastos WHERE mi_parte IS NOT NULL").fetchall())
+    te_deben = agrupar_reintegros(pendientes_reint, date.today())
+    total_filtrado = sum(mi_parte.get(f[0], f[2]) for f in filas)
     tarjetas, sin_fechas, limites, tarjetas_det = [], [], [], []
     for tid, tipo, ultimos4, banco, modalidad, cierre, venc, limite, moneda_t, banco_id in con.execute(
         """SELECT t.id, t.tipo, t.ultimos4, b.nombre, t.modalidad, t.dia_cierre, t.dia_vencimiento, t.limite,
@@ -629,6 +649,9 @@ def renderizar(vista):
         objetivos=objetivos, prestamos=prestamos, saldo_rol=saldo_rol, vencidas=vencidas, roles=ROLES, cal=cal,
         ccl=ccl, ccl_hoy=ccl_hoy, usd_mes=usd_mes, pagos=pagos, monedas_tarjeta=MONEDAS_TARJETA, pendientes=pendientes,
         precio_sugerido=(ultimo_precio[0] if ultimo_precio else ccl_hoy),
+        reint_gasto=reint_gasto, mi_parte=mi_parte, te_deben=te_deben,
+        total_te_deben=sum(g["total"] for g in te_deben), personas_reint=sorted({g["nombre"] for g in te_deben} |
+                                                                               {r["persona"] for l in reint_gasto.values() for r in l}),
         error=ERRORES.get(request.args.get("error")),
     )
 
@@ -738,16 +761,149 @@ def agregar():
             con_interes = 1
     categoria = form.get("categoria", "").strip().lower() or "otros"
     descripcion = form.get("descripcion", "").strip()
-    con.execute(
+    reintegros = []
+    if form.get("reintegra"):  # pagaste por otros: el trabajo o amigos te lo devuelven
+        reintegros = leer_reintegros(form, monto, moneda, cotizacion_usada)
+        if reintegros is None:
+            con.close()
+            return redirect(url_for("inicio", error="reintegro"))
+    cur = con.execute(
         """INSERT INTO gastos (fecha, monto, categoria, descripcion, medio, tarjeta_id, banco_id,
                                cuotas, con_interes, total_con_interes, moneda, monto_usd, cotizacion)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (form["fecha"], monto, categoria, descripcion, medio, tarjeta_id, banco_id,
          cuotas, con_interes, total, moneda, monto_usd, cotizacion_usada),
     )
+    if reintegros:
+        guardar_reintegros(con, cur.lastrowid, reintegros)
     con.commit()
     con.close()
     return redirect(url_for("inicio"))
+
+
+def leer_reintegros(form, total_pesos, moneda, cotizacion_gasto, ya_debido=0.0):
+    """Lee las filas 'quién / cuánto' del formulario. Los montos van en la moneda del gasto.
+    Devuelve lista de (persona, pesos, moneda, monto_en_moneda) o None si algo no cierra."""
+    personas, montos = form.getlist("r_persona"), form.getlist("r_monto")
+    filas = []
+    for persona, texto in zip(personas, montos):
+        persona = " ".join(persona.split())
+        if not persona and not texto.strip():
+            continue  # fila vacía
+        try:
+            valor = a_monto(texto)
+        except ValueError:
+            return None
+        if not persona or valor <= 0:
+            return None
+        pesos = round(valor * cotizacion_gasto, 2) if moneda == "USD" else valor
+        filas.append((persona, pesos, moneda, valor))
+    if not filas or sum(f[1] for f in filas) + ya_debido > total_pesos + 0.5:
+        return None
+    return filas
+
+
+def guardar_reintegros(con, gasto_id, filas):
+    ahora = datetime.now().isoformat(timespec="seconds")
+    con.executemany(
+        "INSERT INTO reintegros (gasto_id, persona, monto, moneda, monto_moneda, creado) VALUES (?, ?, ?, ?, ?, ?)",
+        [(gasto_id, persona, pesos, moneda, valor, ahora) for persona, pesos, moneda, valor in filas])
+    recalcular_parte(con, gasto_id)
+
+
+def recalcular_parte(con, gasto_id):
+    """Actualiza gastos.mi_parte según sus reintegros (sin reintegros = NULL, todo tuyo)."""
+    fila = con.execute("SELECT monto FROM gastos WHERE id = ?", (gasto_id,)).fetchone()
+    if not fila:
+        return
+    lista = [{"monto": m, "estado": e, "devuelto": d} for m, e, d in
+             con.execute("SELECT monto, estado, devuelto FROM reintegros WHERE gasto_id = ?", (gasto_id,))]
+    con.execute("UPDATE gastos SET mi_parte = ? WHERE id = ?",
+                (parte_propia(fila[0], lista) if lista else None, gasto_id))
+
+
+def volver_a(form, ancla=None):
+    destino = {"inicio": "inicio", "prestamos": "ver_prestamos"}.get(form.get("volver"), "ver_gastos")
+    return url_for(destino, _anchor=ancla) if ancla else url_for(destino)
+
+
+@app.post("/gastos/<int:id_>/reintegros")
+def agregar_reintegro(id_):
+    """Sumar a un gasto ya cargado lo que te tienen que devolver."""
+    con = conectar()
+    fila = con.execute("SELECT monto, COALESCE(moneda, 'ARS'), cotizacion FROM gastos WHERE id = ?", (id_,)).fetchone()
+    if not fila:
+        con.close()
+        return redirect(volver_a(request.form))
+    ya = con.execute("SELECT COALESCE(SUM(monto), 0) FROM reintegros WHERE gasto_id = ? AND estado != 'no_devuelve'",
+                     (id_,)).fetchone()[0]
+    filas = leer_reintegros(request.form, fila[0], fila[1], fila[2], ya)
+    if filas is None:
+        con.close()
+        return redirect(url_for("ver_gastos", error="reintegro", abrir=id_))
+    guardar_reintegros(con, id_, filas)
+    con.commit()
+    con.close()
+    return redirect(volver_a(request.form, "te-deben"))
+
+
+@app.post("/reintegros/<int:id_>")
+def actualizar_reintegro(id_):
+    """devuelto: te lo devolvieron (todo, o el monto que escribas) · no_devuelve: pasa a ser gasto tuyo ·
+    deshacer: vuelve a pendiente · borrar: no te debían nada (el gasto vuelve a ser todo tuyo)."""
+    form = request.form
+    accion = form.get("accion")
+    con = conectar()
+    fila = con.execute("SELECT gasto_id, monto, moneda, monto_moneda FROM reintegros WHERE id = ?", (id_,)).fetchone()
+    if not fila:
+        con.close()
+        return redirect(volver_a(form))
+    gasto_id, pesos, moneda, monto_moneda = fila
+    hoy = date.today().isoformat()
+    if accion == "devuelto":
+        devuelto = pesos
+        if form.get("monto", "").strip():
+            try:
+                valor = a_monto(form["monto"])
+            except ValueError:
+                valor = -1
+            if valor <= 0 or (monto_moneda and valor > monto_moneda + 0.005) or (not monto_moneda and valor > pesos + 0.5):
+                con.close()
+                return redirect(volver_a(form) + "?error=reintegro")
+            devuelto = round(pesos * valor / monto_moneda, 2) if monto_moneda else valor
+        con.execute("UPDATE reintegros SET estado = 'devuelto', devuelto = ?, fecha_devuelto = ? WHERE id = ?",
+                    (devuelto, hoy, id_))
+    elif accion == "no_devuelve":
+        con.execute("UPDATE reintegros SET estado = 'no_devuelve', devuelto = NULL, fecha_devuelto = ? WHERE id = ?",
+                    (hoy, id_))
+    elif accion == "deshacer":
+        con.execute("UPDATE reintegros SET estado = 'pendiente', devuelto = NULL, fecha_devuelto = NULL WHERE id = ?",
+                    (id_,))
+    elif accion == "borrar":
+        con.execute("DELETE FROM reintegros WHERE id = ?", (id_,))
+    recalcular_parte(con, gasto_id)
+    con.commit()
+    con.close()
+    return redirect(volver_a(form, "te-deben"))
+
+
+@app.post("/reintegros/persona")
+def saldar_persona():
+    """Te devolvió todo lo que te debía (todos sus pendientes, completos)."""
+    clave = clave_persona(request.form.get("persona"))
+    con = conectar()
+    hoy = date.today().isoformat()
+    tocados = set()
+    for rid, gid, persona in con.execute("SELECT id, gasto_id, persona FROM reintegros WHERE estado = 'pendiente'").fetchall():
+        if clave_persona(persona) == clave:
+            con.execute("UPDATE reintegros SET estado = 'devuelto', devuelto = monto, fecha_devuelto = ? WHERE id = ?",
+                        (hoy, rid))
+            tocados.add(gid)
+    for gid in tocados:
+        recalcular_parte(con, gid)
+    con.commit()
+    con.close()
+    return redirect(volver_a(request.form, "te-deben"))
 
 
 @app.post("/eliminar/<int:id_>")
@@ -755,6 +911,7 @@ def eliminar(id_):
     con = conectar()
     con.execute("DELETE FROM gastos WHERE id = ?", (id_,))
     con.execute("DELETE FROM fijo_cobros WHERE gasto_id = ?", (id_,))
+    con.execute("DELETE FROM reintegros WHERE gasto_id = ?", (id_,))
     con.commit()
     con.close()
     return redirect(url_for("ver_gastos", **{k: request.args.get(k) for k in ("mes", "dia", "tarjeta_id", "banco_id")}))

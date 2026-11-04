@@ -1,0 +1,78 @@
+{%- from "_iconos.html" import icono -%}
+{#- Reintegros: plata que pusiste por otros (el trabajo, amigos) y te tienen que devolver. -#}
+
+{#- Filas "¿quién? / ¿cuánto?". total_de: selector del campo con el total del gasto; total: o un número fijo. -#}
+{% macro campos(total_de='', total='', moneda='$', abierto=False) -%}
+<div class="reint{% if not abierto %} hidden{% endif %}" data-total-de="{{ total_de }}" data-total="{{ total }}" data-moneda="{{ moneda }}">
+  <div class="reint-filas">
+    <div class="reint-fila">
+      <input name="r_persona" list="personas-reint" placeholder="¿Quién? Ej: Trabajo" aria-label="Quién te lo devuelve" autocomplete="off">
+      <input name="r_monto" inputmode="decimal" placeholder="{{ moneda }} cuánto" aria-label="Cuánto te devuelve">
+      <button type="button" class="papelera" onclick="reintQuitar(this)" aria-label="Quitar esta persona" title="Quitar">{{ icono('papelera', 16) }}</button>
+    </div>
+  </div>
+  <div class="reint-acciones">
+    <button type="button" class="btn sec chico" onclick="reintSumar(this)">{{ icono('mas_uno', 14) }} Otra persona</button>
+    <button type="button" class="btn sec chico" onclick="reintDividir(this)">Dividir en partes iguales con vos</button>
+    <button type="button" class="btn sec chico" onclick="reintTodo(this)">Me devuelven todo</button>
+  </div>
+  <p class="lbl reint-tu-parte" style="margin:0"></p>
+</div>
+{%- endmacro %}
+
+{% macro datalist(personas) -%}
+<datalist id="personas-reint">{% for p in personas %}<option value="{{ p }}">{% endfor %}</datalist>
+{%- endmacro %}
+
+{#- Tarjeta "Te deben", agrupada por persona. volver: a qué página vuelve después de cada acción. -#}
+{% macro te_deben_card(te_deben, total, volver, compacta=False) -%}
+<section class="card" id="te-deben">
+  <div class="cabeza"><h2>Te deben</h2><span class="mini">{{ total|peso }}</span></div>
+  {% for g in te_deben %}
+  <details class="plegable grupo-reint" style="border-bottom:1px solid var(--line)">
+    <summary>
+      <div class="fila" style="flex:1;border:none">
+        <span class="ico">{{ icono('usuarios', 18) }}</span>
+        <div class="cuerpo">
+          <div class="titulo">{{ g.nombre }}</div>
+          <div class="detalle">{{ g.cantidad }} pendiente{{ 's' if g.cantidad != 1 }}{% if g.cantidad > 1 %} · el más viejo hace {{ g.mas_viejo }} día{{ 's' if g.mas_viejo != 1 }}{% elif g.mas_viejo %} · hace {{ g.mas_viejo }} día{{ 's' if g.mas_viejo != 1 }}{% else %} · de hoy{% endif %}</div>
+          {% if g.atrasado %}<span class="pildora aviso" style="margin-top:4px">{{ icono('alerta', 12) }} Hace más de 30 días</span>{% endif %}
+        </div>
+        <div class="monto">{{ g.total|peso }}</div>
+      </div>
+    </summary>
+    <div class="reint-detalle">
+      {% for r in g.lista %}
+      <div class="reint-item">
+        <div class="cuerpo">
+          <div>{{ r.gasto }}</div>
+          <div class="lbl">Gasto del {{ r.fecha|fecha_corta }}{% if r.atrasado %} · <span class="aviso">hace {{ r.dias }} días</span>{% endif %}</div>
+        </div>
+        <b>{{ r.monto_moneda|usd if r.moneda == 'USD' else r.monto|peso }}</b>
+        <div class="reint-botones">
+          <form method="post" action="{{ url_for('actualizar_reintegro', id_=r.id) }}"><input type="hidden" name="volver" value="{{ volver }}">
+            <button class="btn chico" name="accion" value="devuelto">{{ icono('ok', 14) }} Me lo devolvió</button></form>
+          <details class="mini-plegable" style="margin:0">
+            <summary>Me devolvió menos</summary>
+            <form method="post" action="{{ url_for('actualizar_reintegro', id_=r.id) }}" class="reint-menos">
+              <input type="hidden" name="volver" value="{{ volver }}"><input type="hidden" name="accion" value="devuelto">
+              <input name="monto" inputmode="decimal" required placeholder="{{ 'US$' if r.moneda == 'USD' else '$' }} cuánto" aria-label="Cuánto te devolvió">
+              <button class="btn sec chico">Guardar</button>
+            </form>
+            <p class="lbl" style="margin:4px 0 0">La diferencia pasa a ser gasto tuyo.</p>
+          </details>
+          <form method="post" action="{{ url_for('actualizar_reintegro', id_=r.id) }}" onsubmit="return confirm('¿No te lo devuelve? Pasa a ser gasto tuyo.')"><input type="hidden" name="volver" value="{{ volver }}">
+            <button class="borrar" name="accion" value="no_devuelve">No me lo devuelve</button></form>
+        </div>
+      </div>
+      {% endfor %}
+      {% if g.cantidad > 1 %}
+      <form method="post" action="{{ url_for('saldar_persona') }}" style="margin-top:12px"><input type="hidden" name="volver" value="{{ volver }}"><input type="hidden" name="persona" value="{{ g.nombre }}">
+        <button class="btn sec chico">{{ icono('ok', 14) }} {{ g.nombre }} me devolvió todo ({{ g.total|peso }})</button></form>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+  <p class="lbl" style="margin-bottom:0">Lo que pagaste por otros: está en tu tarjeta, pero no en tus gastos. Cuando te devuelvan, marcalo acá.</p>
+</section>
+{%- endmacro %}

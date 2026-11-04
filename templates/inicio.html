@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_iconos.html" import icono, ico_categoria %}
-{% from "_gastos.html" import lista_gastos %}
+{% from "_gastos.html" import lista_gastos with context %}
+{% import "_reintegros.html" as reint with context %}
 {% block contenido %}
   <section class="hero">
     <div class="lbl">Gastado en {{ mes_nombre|lower }}</div>
@@ -68,7 +69,7 @@
     {% endif %}
   </section>
 
-  <details class="agregar" id="agregar"{% if error and request.args.get('error') in ('datos', 'cuotas', 'interes') %} open{% endif %}>
+  <details class="agregar" id="agregar"{% if error and request.args.get('error') in ('datos', 'cuotas', 'interes', 'reintegro') %} open{% endif %}>
     <summary class="btn">{{ icono('mas_uno', 18) }} Agregar gasto</summary>
     <div class="card">
       <div class="cabeza"><h2>Nuevo gasto</h2></div>
@@ -107,6 +108,12 @@
         <label class="check hidden" id="lbl-interes"><input type="checkbox" name="con_interes" id="con-interes" onchange="actualizarCredito()"> Con interés</label>
         <label class="campo hidden" id="campo-total"><span>Total a pagar con intereses</span><input name="total_con_interes" id="total-interes" inputmode="decimal"></label>
         <p class="ancho lbl hidden" id="previa" style="margin:0"></p>
+        <div class="ancho">
+          <label class="check"><input type="checkbox" name="reintegra" onchange="reintMostrar(this)"{% if request.args.get('error') == 'reintegro' %} checked{% endif %}>
+            <span>Pagué por otros y me lo devuelven <span class="lbl">(el trabajo, amigos)</span></span></label>
+          {{ reint.campos(total_de='#monto', abierto=(request.args.get('error') == 'reintegro')) }}
+        </div>
+        {{ reint.datalist(personas_reint) }}
         <div class="ancho" style="display:flex;gap:12px;flex-wrap:wrap">
           <button class="btn">Guardar gasto</button>
           <button type="button" class="btn sec" onclick="document.getElementById('agregar').open=false">Cancelar</button>
@@ -122,6 +129,8 @@
     {% if tarjeta_top %}<span>{{ icono('tarjetas', 16) }} Más usada: <b>{{ tarjeta_top[0] }}</b></span>{% endif %}
     {% if banco_top %}<span>{{ icono('banco', 16) }} Banco: <b>{{ banco_top[0] }}</b></span>{% endif %}
   </div>
+
+  {% if te_deben %}{{ reint.te_deben_card(te_deben, total_te_deben, 'inicio') }}{% endif %}
 
   <div class="grilla dos">
     <section class="card">
@@ -170,6 +179,11 @@ function actualizarCredito() {
   mostrar('lbl-interes', credito);
   mostrar('campo-total', credito && interes);
   mostrar('campo-cotizacion', enDolares);
+  document.querySelectorAll('.reint').forEach(function (c) {
+    c.dataset.moneda = enDolares ? 'US$' : '$';
+    c.querySelectorAll('input[name=r_monto]').forEach(function (i) { i.placeholder = c.dataset.moneda + ' cuánto'; });
+    reintActualizar(c);
+  });
   previa();
 }
 function numero(texto) {  // mismo criterio que la app: 1.500,50 · 1.500.000 · 1500.50

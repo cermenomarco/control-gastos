@@ -14,6 +14,7 @@ ROLES = {"acreedor": "Me deben", "deudor": "Debo"}
 FRECUENCIAS = {1: "Mensual", 2: "Bimestral", 3: "Trimestral", 6: "Semestral", 12: "Anual"}
 ERRORES = {
     "cobro_pasado": "Revisá la fecha del cobro: tiene que ser hoy o un día que ya pasó.",
+    "reintegro": "Revisá a quién y cuánto: cada monto mayor a 0 y, entre todos, no más que el gasto.",
     "datos": "Revisá el monto (mayor a 0), la fecha y el medio de pago.",
     "tarjeta": "Revisá la tarjeta: tipo, los 4 dígitos y, si es de crédito, el día de cierre y de vencimiento (1 a 31).",
     "cuotas": "Las cuotas van de 1 a 60.",
@@ -420,3 +421,41 @@ def eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_d
     for lista in dias.values():
         lista.sort(key=lambda e: (orden[e["tipo"]], e["titulo"]))
     return dias
+
+
+DIAS_RECORDATORIO = 30  # un reintegro pendiente hace más de esto se marca en amarillo
+
+
+def parte_propia(monto, reintegros):
+    """Lo que es tuyo de un gasto: el total menos lo que te deben o te devolvieron.
+    reintegros: dicts con monto, estado y devuelto (todo en pesos). Si alguien no te devuelve, eso es tuyo."""
+    ajeno = 0.0
+    for r in reintegros:
+        if r["estado"] == "pendiente":
+            ajeno += r["monto"]
+        elif r["estado"] == "devuelto":
+            ajeno += r["devuelto"] if r["devuelto"] is not None else r["monto"]
+    return max(round(monto - ajeno, 2), 0.0)
+
+
+def clave_persona(nombre):
+    """Para agrupar: 'Trabajo', ' trabajo ' y 'TRABAJO' son la misma persona."""
+    return " ".join((nombre or "").split()).lower()
+
+
+def agrupar_reintegros(pendientes, hoy):
+    """Agrupa los reintegros pendientes por persona. pendientes: dicts con persona, monto, fecha (del gasto).
+    Devuelve grupos ordenados por monto: nombre, total, cantidad, mas_viejo (días) y la lista."""
+    grupos = {}
+    for r in pendientes:
+        r["dias"] = (hoy - r["fecha"]).days
+        r["atrasado"] = r["dias"] >= DIAS_RECORDATORIO
+        g = grupos.setdefault(clave_persona(r["persona"]), {"nombre": r["persona"].strip(), "total": 0.0, "lista": []})
+        g["total"] += r["monto"]
+        g["lista"].append(r)
+    for g in grupos.values():
+        g["lista"].sort(key=lambda r: r["fecha"])
+        g["cantidad"] = len(g["lista"])
+        g["mas_viejo"] = max(r["dias"] for r in g["lista"])
+        g["atrasado"] = any(r["atrasado"] for r in g["lista"])
+    return sorted(grupos.values(), key=lambda g: -g["total"])

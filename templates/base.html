@@ -170,6 +170,22 @@ details.mes-fila[open] .ver-detalle{display:none}
 .mes-items li .lbl{font-size:12px}
 .mes-items li b{font-weight:600;white-space:nowrap}
 .marca-serie.ok-bg{background:var(--ok)}
+/* Reintegros */
+.reint{margin-top:8px}
+.reint-filas{display:flex;flex-direction:column;gap:8px}
+.reint-fila{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto;gap:8px;align-items:center}
+.reint-acciones{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 6px}
+.reint-tu-parte.alerta{color:var(--alerta)}
+.reint-detalle{padding:0 0 12px 48px}
+.reint-item{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 12px;padding:10px 0;border-top:1px dashed var(--line)}
+.reint-item .cuerpo{flex:1;min-width:0}
+.reint-item > b{white-space:nowrap}
+.reint-botones{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.reint-menos{display:flex;gap:8px;margin-top:8px}
+.reint-menos input{max-width:160px;min-height:40px;padding:8px 12px}
+.reint-gasto{flex-basis:100%}
+.monto .tuyo{color:var(--ok)}
+@media (max-width:480px){.reint-detalle{padding-left:0}}
 .mes-fila.destacado{background:color-mix(in srgb, var(--lima) 12%, transparent);margin:0 -12px;padding:14px 12px;border-radius:12px}
 .campo{display:flex;flex-direction:column;gap:6px}
 .campo > span{font:500 13px Inter;color:var(--mut)}
@@ -534,6 +550,77 @@ a.evento:hover .titulo{text-decoration:underline}
   pintar();
 })();
 
+// ---- Reintegros: filas "¿quién? / ¿cuánto?" ----
+function numeroMonto(texto) {  // mismo criterio que la app: 1.500,50 · 1.500.000 · 1500.50
+  texto = (texto || '').replace(/\s/g, '');
+  if (texto.indexOf(',') >= 0) texto = texto.replace(/\./g, '').replace(',', '.');
+  else if ((texto.match(/\./g) || []).length > 1 || /\.\d{3}$/.test(texto)) texto = texto.replace(/\./g, '');
+  var n = parseFloat(texto); return isNaN(n) ? null : n;
+}
+function reintCaja(el) { return el.closest('.reint'); }
+function reintTotal(c) {
+  if (c.dataset.totalDe) { var campo = document.querySelector(c.dataset.totalDe); return campo ? (numeroMonto(campo.value) || 0) : 0; }
+  return parseFloat(c.dataset.total) || 0;
+}
+function reintActualizar(c) {
+  var total = reintTotal(c), suma = 0;
+  c.querySelectorAll('input[name=r_monto]').forEach(function (i) { suma += numeroMonto(i.value) || 0; });
+  var p = c.querySelector('.reint-tu-parte'), m = c.dataset.moneda || '$';
+  if (!total) { p.textContent = ''; return; }
+  var tuyo = total - suma;
+  p.textContent = tuyo < -0.005 ? 'Ojo: entre todos te deben más que el gasto (' + m + ' ' + formatearMonto(total) + ').'
+    : (c.dataset.totalDe ? 'Tu parte: ' : 'Queda tuyo: ') + m + ' ' + formatearMonto(tuyo) + (suma ? ' · te devuelven ' + m + ' ' + formatearMonto(suma) : '');
+  p.classList.toggle('alerta', tuyo < -0.005);
+}
+function reintMostrar(check) {
+  var c = check.closest('.ancho').querySelector('.reint');
+  c.classList.toggle('hidden', !check.checked);
+  c.querySelectorAll('input').forEach(function (i) { i.disabled = !check.checked; });
+  if (check.checked) {
+    var primero = c.querySelector('input[name=r_persona]');
+    if (!c.querySelector('input[name=r_monto]').value && reintTotal(c)) reintTodo(primero);
+    primero.focus();
+  }
+}
+function reintSumar(btn) {
+  var c = reintCaja(btn), filas = c.querySelector('.reint-filas');
+  var nueva = filas.firstElementChild.cloneNode(true);
+  nueva.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+  filas.appendChild(nueva);
+  nueva.querySelector('input').focus();
+  reintActualizar(c);
+}
+function reintQuitar(btn) {
+  var c = reintCaja(btn), filas = c.querySelector('.reint-filas');
+  if (filas.children.length > 1) btn.closest('.reint-fila').remove();
+  else btn.closest('.reint-fila').querySelectorAll('input').forEach(function (i) { i.value = ''; });
+  reintActualizar(c);
+}
+function reintDividir(btn) {  // entre las personas cargadas y vos
+  var c = reintCaja(btn), montos = c.querySelectorAll('input[name=r_monto]'), total = reintTotal(c);
+  if (!total) return;
+  var parte = Math.round(total / (montos.length + 1) * 100) / 100;
+  montos.forEach(function (i) { i.value = formatearMonto(parte); });
+  reintActualizar(c);
+}
+function reintTodo(btn) {  // una sola persona te devuelve todo (ej: el trabajo)
+  var c = reintCaja(btn), filas = c.querySelector('.reint-filas');
+  while (filas.children.length > 1) filas.lastElementChild.remove();
+  var total = reintTotal(c);
+  if (total) filas.querySelector('input[name=r_monto]').value = formatearMonto(total);
+  reintActualizar(c);
+}
+document.addEventListener('input', function (ev) {
+  if (ev.target.name === 'r_monto') reintActualizar(reintCaja(ev.target));
+  if (ev.target.id === 'monto') document.querySelectorAll('.reint[data-total-de="#monto"]').forEach(reintActualizar);
+});
+document.addEventListener('DOMContentLoaded', function () {  // después de que cargue el formato de montos
+  document.querySelectorAll('.reint').forEach(function (c) {
+    if (c.classList.contains('hidden')) c.querySelectorAll('input').forEach(function (i) { i.disabled = true; });
+    reintActualizar(c);
+  });
+});
+
 // ---- Montos con puntos de miles mientras escribís (1400000 → 1.400.000) ----
 (function () {
   function formatear(valor) {
@@ -543,29 +630,36 @@ a.evento:hover .titulo{text-decoration:underline}
     return entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + dec;
   }
   function significativos(texto) { return texto.replace(/[^\d,]/g, '').length; }
+  window.formatearMonto = function (n) {  // 1500.5 → "1.500,5" (para los scripts de cada página)
+    var r = Math.round(n * 100) / 100, s = String(r).replace('.', ',');
+    return formatear(s);
+  };
+  function esMonto(el) { return el && el.matches && el.matches('input[inputmode=decimal]'); }
   document.querySelectorAll('input[inputmode=decimal]').forEach(function (campo) {
     if (campo.value) campo.value = formatear(campo.value.replace(/\.(?=\d{1,2}$)/, ','));  // 1480.5 → 1.480,5
-    campo.addEventListener('beforeinput', function (ev) {
-      // El punto que escribís es la coma decimal (en el teclado argentino del celular aparece la coma)
-      if (ev.data === '.' && !ev.isComposing) {
-        ev.preventDefault();
-        if (campo.value.indexOf(',') < 0) {
-          var i = campo.selectionStart, f = campo.selectionEnd;
-          campo.setRangeText(',', i, f, 'end');
-          campo.dispatchEvent(new Event('input', {bubbles: true}));
-        }
-      }
-    });
-    campo.addEventListener('input', function () {
-      var antes = significativos(campo.value.slice(0, campo.selectionStart));
-      var nuevo = formatear(campo.value);
-      if (nuevo === campo.value) return;
-      campo.value = nuevo;
-      var pos = 0, vistos = 0;
-      while (pos < nuevo.length && vistos < antes) { if (/[\d,]/.test(nuevo[pos])) vistos++; pos++; }
-      campo.setSelectionRange(pos, pos);
-    });
   });
+  // Escucha en todo el documento: también sirve para campos que se agregan después
+  document.addEventListener('beforeinput', function (ev) {
+    var campo = ev.target;
+    // El punto que escribís es la coma decimal (en el teclado argentino del celular aparece la coma)
+    if (!esMonto(campo) || ev.data !== '.' || ev.isComposing) return;
+    ev.preventDefault();
+    if (campo.value.indexOf(',') < 0) {
+      campo.setRangeText(',', campo.selectionStart, campo.selectionEnd, 'end');
+      campo.dispatchEvent(new Event('input', {bubbles: true}));
+    }
+  });
+  document.addEventListener('input', function (ev) {
+    var campo = ev.target;
+    if (!esMonto(campo)) return;
+    var antes = significativos(campo.value.slice(0, campo.selectionStart));
+    var nuevo = formatear(campo.value);
+    if (nuevo === campo.value) return;
+    campo.value = nuevo;
+    var pos = 0, vistos = 0;
+    while (pos < nuevo.length && vistos < antes) { if (/[\d,]/.test(nuevo[pos])) vistos++; pos++; }
+    campo.setSelectionRange(pos, pos);
+  }, true);
 })();
 </script>
 {% block scripts %}{% endblock %}

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_iconos.html" import icono %}
-{% from "_gastos.html" import lista_gastos %}
+{% from "_gastos.html" import lista_gastos with context %}
+{% import "_reintegros.html" as reint with context %}
 {% block contenido %}
   <div class="titulo-pagina">
     <h1>Gastos</h1>
@@ -22,6 +23,7 @@
     </form>
   </details>
 
+  {{ reint.datalist(personas_reint) }}
   <section class="card">
     {% if filas %}{{ lista_gastos(filas, borrar=True, filtros=filtros) }}
     {% else %}<p class="vacio">No hay gastos con estos filtros.</p>{% endif %}

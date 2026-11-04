@@ -97,6 +97,20 @@ TABLAS = [
            real REAL,                     -- lo que costó de verdad, si fue distinto
            cubierto INTEGER NOT NULL DEFAULT 0
        )""",
+    # Plata que pusiste por otros y te tienen que devolver (el trabajo, amigos).
+    # El gasto completo va a la tarjeta; a tus totales solo entra tu parte (gastos.mi_parte).
+    """CREATE TABLE IF NOT EXISTS reintegros (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           gasto_id INTEGER NOT NULL,
+           persona TEXT NOT NULL,
+           monto REAL NOT NULL,           -- en pesos (si el gasto es en dólares, al CCL del gasto)
+           moneda TEXT NOT NULL DEFAULT 'ARS',
+           monto_moneda REAL,             -- lo que te deben en la moneda del gasto
+           estado TEXT NOT NULL DEFAULT 'pendiente',  -- pendiente, devuelto o no_devuelve
+           devuelto REAL,                 -- en pesos, lo que te devolvieron (puede ser menos)
+           fecha_devuelto TEXT,
+           creado TEXT NOT NULL
+       )""",
     """CREATE TABLE IF NOT EXISTS ajustes (
            clave TEXT PRIMARY KEY,
            valor TEXT
@@ -133,6 +147,7 @@ COLUMNAS = {
         # Gastos en dólares: 'monto' sigue siendo en pesos (USD × CCL del día), así todos los totales siguen igual
         "moneda TEXT DEFAULT 'ARS'", "monto_usd REAL", "cotizacion REAL",
         "fijo_id INTEGER",  # si el gasto vino de confirmar el cobro de un gasto fijo
+        "mi_parte REAL",  # si te reintegran algo: lo que es tuyo (NULL = todo)
     ],
     "fijos": ["cancelado_en TEXT", "activo_hasta TEXT", "moneda TEXT DEFAULT 'ARS'",
               "confirmar_desde TEXT"],  # desde qué día se piden confirmar los cobros

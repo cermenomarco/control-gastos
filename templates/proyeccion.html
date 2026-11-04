@@ -13,7 +13,7 @@
   <div class="stats">
     <div class="stat"><div class="lbl">Comprometido</div><div class="big">{{ comprometido|peso }}</div><div class="chico">{{ proyeccion[0].mes[:3]|lower }} {{ proyeccion[0].mes[-4:] }} a {{ proyeccion[-1].mes[:3]|lower }} {{ proyeccion[-1].mes[-4:] }}</div></div>
     <div class="stat"><div class="lbl">Mes más cargado</div>{% if maximo > 0 %}{% for p in proyeccion if p.total == maximo %}{% if loop.first %}<div class="big">{{ p.mes.split(' ')[0] }}</div><div class="chico">{{ p.total|peso }}</div>{% endif %}{% endfor %}{% else %}<div class="big">—</div>{% endif %}</div>
-    <div class="stat"><div class="lbl">A cobrar de préstamos</div><div class="big ok">{{ a_cobrar|peso }}</div><div class="chico">no se resta del total</div></div>
+    <div class="stat"><div class="lbl">Te deben</div><div class="big ok">{{ (a_cobrar + total_te_deben)|peso }}</div><div class="chico">{% if total_te_deben %}incluye {{ total_te_deben|peso }} de reintegros · {% endif %}no se resta del total</div></div>
   </div>
 
   <section class="card">

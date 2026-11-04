@@ -1,21 +1,54 @@
 {%- from "_iconos.html" import icono, ico_categoria -%}
+{%- import "_reintegros.html" as reint with context -%}
 {#- Lista de gastos agrupada por día. filas: (id, fecha, monto, categoria, descripcion, medio) -#}
 {% macro lista_gastos(filas, borrar=False, filtros=None) -%}
   {% for fecha, del_dia in filas|groupby('1')|reverse %}
   <div class="dia">{{ fecha|dia }}</div>
     {% for id, f, monto, cat, desc, medio, moneda, monto_usd, cot in del_dia %}
     {% if borrar %}
-    <details class="desplegable">
+    <details class="desplegable"{% if request.args.get('abrir') == id|string %} open{% endif %}>
       <summary class="fila">
         {{ ico_categoria(cat) }}
         <div class="cuerpo">
           <div class="titulo">{{ desc or cat|capitalize }}</div>
           <div class="detalle">{% if desc %}{{ cat|capitalize }} · {% endif %}{{ medio }}</div>
+          {% set debe = reint_gasto.get(id, [])|selectattr('estado', 'equalto', 'pendiente')|list %}
+          {% if debe %}<span class="pildora neutra" style="margin-top:4px">Te deben {{ debe|sum(attribute='monto')|peso }}</span>{% endif %}
         </div>
-        <div class="monto">{% if moneda == 'USD' %}{{ monto_usd|usd }}<div class="chico" title="CCL {{ cot|peso }}">≈ {{ monto|peso }}</div>{% else %}{{ monto|peso }}{% endif %}</div>
+        <div class="monto">{% if moneda == 'USD' %}{{ monto_usd|usd }}<div class="chico" title="CCL {{ cot|peso }}">≈ {{ monto|peso }}</div>{% else %}{{ monto|peso }}{% endif %}
+          {% if id in mi_parte %}<div class="chico tuyo">tuyo {{ mi_parte[id]|peso }}</div>{% endif %}</div>
       </summary>
       <div class="acciones-fila">
         {% if moneda == 'USD' %}<span class="lbl">Convertido al CCL {{ cot|peso }}</span>{% endif %}
+        {% set lista_r = reint_gasto.get(id, []) %}
+        {% if lista_r %}
+        <div class="reint-gasto">
+          <div class="mini" style="margin-bottom:4px">Lo que pusiste por otros · tuyo {{ mi_parte.get(id, monto)|peso }}</div>
+          {% for r in lista_r %}
+          <div class="cuota">
+            <span>{{ r.persona }} · {{ r.monto_moneda|usd if r.moneda == 'USD' else r.monto|peso }} ·
+              {% if r.estado == 'pendiente' %}<span class="pildora neutra">Te debe</span>
+              {% elif r.estado == 'devuelto' %}<span class="pildora ok">Devolvió {{ r.devuelto|peso }}</span>
+              {% else %}<span class="pildora alerta">No lo devuelve</span>{% endif %}</span>
+            <form method="post" action="{{ url_for('actualizar_reintegro', id_=r.id) }}">
+              {% if r.estado == 'pendiente' %}<button class="borrar" name="accion" value="borrar" title="No te debía nada">{{ icono('papelera', 14) }} Quitar</button>
+              {% else %}<button class="borrar" name="accion" value="deshacer">{{ icono('deshacer', 14) }} Deshacer</button>{% endif %}
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% set ajeno = lista_r|rejectattr('estado', 'equalto', 'no_devuelve')|sum(attribute='monto') %}
+        {% if monto - ajeno > 0.5 %}
+        <details class="mini-plegable" style="flex-basis:100%;margin:0"{% if request.args.get('abrir') == id|string %} open{% endif %}>
+          <summary>{{ '¿Alguien más te debe parte?' if lista_r else '¿Pagaste por otros? Anotá quién te lo devuelve' }}</summary>
+          <form method="post" action="{{ url_for('agregar_reintegro', id_=id) }}" style="margin-top:8px">
+            {% set resto = (monto_usd - ajeno / cot) if moneda == 'USD' and cot else monto - ajeno %}
+            {{ reint.campos(total=resto|round(2), moneda=('US$' if moneda == 'USD' else '$'), abierto=True) }}
+            <button class="btn chico" style="margin-top:8px">Guardar</button>
+          </form>
+        </details>
+        {% endif %}
         <form method="post" action="{{ url_for('eliminar', id_=id, mes=filtros.mes, dia=filtros.dia, tarjeta_id=filtros.tarjeta, banco_id=filtros.banco) }}" onsubmit="return confirm('¿Borrar este gasto?')">
           <button class="quitar">{{ icono('papelera', 16) }} Borrar gasto</button>
         </form>
@@ -27,8 +60,11 @@
       <div class="cuerpo">
         <div class="titulo">{{ desc or cat|capitalize }}</div>
         <div class="detalle">{% if desc %}{{ cat|capitalize }} · {% endif %}{{ medio }}</div>
+          {% set debe = reint_gasto.get(id, [])|selectattr('estado', 'equalto', 'pendiente')|list %}
+          {% if debe %}<span class="pildora neutra" style="margin-top:4px">Te deben {{ debe|sum(attribute='monto')|peso }}</span>{% endif %}
       </div>
-      <div class="monto">{% if moneda == 'USD' %}{{ monto_usd|usd }}<div class="chico" title="CCL {{ cot|peso }}">≈ {{ monto|peso }}</div>{% else %}{{ monto|peso }}{% endif %}</div>
+      <div class="monto">{% if moneda == 'USD' %}{{ monto_usd|usd }}<div class="chico" title="CCL {{ cot|peso }}">≈ {{ monto|peso }}</div>{% else %}{{ monto|peso }}{% endif %}
+          {% if id in mi_parte %}<div class="chico tuyo">tuyo {{ mi_parte[id]|peso }}</div>{% endif %}</div>
     </div>
     {% endif %}
     {% endfor %}
