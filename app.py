@@ -590,16 +590,16 @@ def renderizar(vista):
     impagas = []
     for pid, persona, rol, monto, total_p, fecha, n_cuotas, desc in filas_prestamos:
         cuotas = cuotas_por_prestamo.get(pid, [])
-        pendientes = [c for c in cuotas if not c["pagada"]]
+        sin_pagar = [c for c in cuotas if not c["pagada"]]
         for c in cuotas:
             c["vencida"] = not c["pagada"] and c["vence"] < hoy_
         vencidas += sum(c["vencida"] for c in cuotas)
-        impagas += [(rol, c["vence"], c["monto"]) for c in pendientes]
+        impagas += [(rol, c["vence"], c["monto"]) for c in sin_pagar]
         prestamos.setdefault(rol, []).append({
             "id": pid, "persona": persona, "monto": monto, "total": total_p, "intereses": total_p - monto,
             "fecha": date.fromisoformat(fecha), "descripcion": desc, "cuotas": cuotas,
-            "pagadas": len(cuotas) - len(pendientes), "pendiente": sum(c["monto"] for c in pendientes),
-            "proxima": pendientes[0] if pendientes else None,
+            "pagadas": len(cuotas) - len(sin_pagar), "pendiente": sum(c["monto"] for c in sin_pagar),
+            "proxima": sin_pagar[0] if sin_pagar else None,
             "vencidas": sum(c["vencida"] for c in cuotas),
         })
     objetivos = []
