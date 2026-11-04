@@ -27,9 +27,14 @@
       <span>Cubierto <b class="ok">{{ o.cubierto|peso }}</b> · {{ o.avance|round|int }}%</span>
       <span>Falta <b style="color:var(--txt)">{{ o.falta|peso }}</b></span>
     </div>
-    {% if not o.completo and o.fecha_meta %}
-      {% if o.ahorro_mensual %}<p class="lbl" style="margin:12px 0 0"><span style="display:inline-flex;vertical-align:-2px">{{ icono('calendario', 14) }}</span> Para el {{ o.fecha_meta|fecha_corta }} te alcanza ahorrando <b style="color:var(--txt)">{{ o.ahorro_mensual|peso }}</b> por mes ({{ o.meses }} mes{{ 'es' if o.meses > 1 }}).</p>
-      {% else %}<p class="alerta" style="margin:12px 0 0;font-size:14px">La fecha meta ({{ o.fecha_meta|fecha_corta }}) ya pasó y faltan {{ o.falta|peso }}.</p>{% endif %}
+    {% if o.falta_usd %}<p class="lbl" style="margin:6px 0 0">Lo que falta son {% if o.falta_ars %}{{ o.falta_ars|peso }} + {% endif %}<b style="color:var(--txt)">{{ o.falta_usd|usd }}</b>{% if ccl_hoy %}<span data-publico> (dólares al CCL de hoy, {{ ccl_hoy|peso }})</span>{% endif %}.</p>{% endif %}
+    {% if o.fecha_meta and not o.completo %}
+      {% set fecha_txt = o.fecha_meta|fecha_corta ~ (' de ' ~ o.fecha_meta.year if o.fecha_meta.year != (hoy[:4]|int) else '') %}
+      {% if o.vencida %}<p class="alerta" style="margin:12px 0 0;font-size:14px">La fecha meta ({{ fecha_txt }}) ya pasó y faltan {{ o.falta|peso }}.</p>
+      {% elif o.meses %}<p class="lbl" style="margin:12px 0 0"><span style="display:inline-flex;vertical-align:-2px">{{ icono('calendario', 14) }}</span> Para el {{ fecha_txt }} te alcanza ahorrando
+        <b style="color:var(--txt)">{% if o.ahorro_ars %}{{ o.ahorro_ars|peso }}{% endif %}{% if o.ahorro_ars and o.ahorro_usd %} + {% endif %}{% if o.ahorro_usd %}{{ o.ahorro_usd|usd }}{% endif %}</b>
+        por mes ({{ o.meses }} mes{{ 'es' if o.meses > 1 }}).</p>
+      {% else %}<p class="lbl" style="margin:12px 0 0"><span style="display:inline-flex;vertical-align:-2px">{{ icono('calendario', 14) }}</span> Fecha meta: {{ fecha_txt }}. Sumá ítems y te digo cuánto ahorrar por mes.</p>{% endif %}
     {% endif %}
 
     <div style="margin-top:12px">
@@ -39,9 +44,11 @@
       <form class="cubrir" method="post" action="{{ url_for('cubrir_item', id_=o.id, item_id=i.id) }}">
         <button class="marcar" title="{{ 'Volver a pendiente' if i.cubierto else 'Marcar como cubierto' }}" aria-label="{{ 'Volver a pendiente' if i.cubierto else 'Marcar como cubierto' }}: {{ i.nombre }}">{% if i.cubierto %}{{ icono('ok', 16) }}{% endif %}</button>
         <div class="cuerpo"><div class="titulo">{{ i.nombre }}</div></div>
-        {% if not i.cubierto %}<input class="real" name="real" inputmode="decimal" placeholder="Monto real, si fue distinto (opcional)" aria-label="Monto real de {{ i.nombre }}">{% endif %}
+        {% if not i.cubierto %}<input class="real" name="real" inputmode="decimal" placeholder="Monto real en {{ 'US$' if i.moneda == 'USD' else '$' }}, si fue distinto (opcional)" aria-label="Monto real de {{ i.nombre }}">{% endif %}
       </form>
-      <div class="monto">{{ (i.real if distinto else i.estimado)|peso }}{% if distinto %}<small>est. {{ i.estimado|peso }}</small>{% endif %}</div>
+      <div class="monto">{{ (i.real if distinto else i.estimado)|usd if i.moneda == 'USD' else (i.real if distinto else i.estimado)|peso }}
+        {% if distinto %}<small>est. {{ i.estimado|usd if i.moneda == 'USD' else i.estimado|peso }}</small>{% endif %}
+        {% if i.moneda == 'USD' and i.pesos %}<small title="{{ 'CCL del día que lo cubriste' if i.cubierto else 'CCL de hoy' }}">≈ {{ i.pesos|peso }}</small>{% endif %}</div>
       <form method="post" action="{{ url_for('eliminar_item', id_=o.id, item_id=i.id) }}" onsubmit="return confirm('¿Quitar {{ i.nombre }}?')"><button class="papelera" title="Quitar {{ i.nombre }}" aria-label="Quitar {{ i.nombre }}">{{ icono('papelera', 18) }}</button></form>
     </div>
     {% else %}<p class="vacio">Sumá lo que necesitás: pasajes, alojamiento, comidas...</p>{% endfor %}
@@ -49,7 +56,15 @@
 
     <form class="form" method="post" action="{{ url_for('agregar_item', id_=o.id) }}" style="margin-top:12px">
       <label class="campo"><span>Ítem</span><input name="nombre" placeholder="Ej: Pasajes" required></label>
-      <label class="campo"><span>Estimado</span><input name="estimado" placeholder="Ej: 600.000" inputmode="decimal" required></label>
+      <div class="campo ancho"><span>Estimado</span>
+        <div class="monto-moneda">
+          <div class="seg-moneda" role="radiogroup" aria-label="Moneda">
+            <label><input type="radio" name="moneda" value="ARS" checked><span>$</span></label>
+            <label><input type="radio" name="moneda" value="USD"><span>US$</span></label>
+          </div>
+          <input name="estimado" placeholder="Ej: 600.000" inputmode="decimal" required aria-label="Estimado">
+        </div>
+      </div>
       <div><button class="btn sec chico">{{ icono('mas_uno', 14) }} Agregar</button></div>
     </form>
     <form method="post" action="{{ url_for('eliminar_objetivo', id_=o.id) }}" onsubmit="return confirm('¿Borrar {{ o.nombre }} con todos sus ítems?')" style="margin-top:16px">
@@ -66,6 +81,6 @@
       <label class="campo"><span>Fecha meta (opcional)</span><input type="date" name="fecha_meta"></label>
       <div class="ancho"><button class="btn">Crear objetivo</button></div>
     </form>
-    <p class="lbl" style="margin-bottom:0">Con fecha meta te digo cuánto ahorrar por mes. Si un ítem te salió distinto, escribí el monto real antes de tacharlo.</p>
+    <p class="lbl" style="margin-bottom:0">Con fecha meta te digo cuánto ahorrar por mes. Cada ítem puede ser en pesos o en dólares (los dólares se suman al CCL). Si un ítem te salió distinto, escribí el monto real antes de tacharlo.</p>
   </details>
 {% endblock %}

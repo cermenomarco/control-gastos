@@ -268,7 +268,7 @@ tr:last-child td{border-bottom:none}
 
 /* ---------- Monedas ---------- */
 .monto-moneda{display:flex;gap:8px}
-.monto-moneda input[name=monto]{flex:1;min-width:0}
+.monto-moneda input[inputmode=decimal]{flex:1;min-width:0}
 .seg-moneda{display:flex;padding:3px;border:1px solid var(--line);border-radius:var(--r-control);background:var(--card);flex:none}
 .seg-moneda label{position:relative;display:grid}
 .seg-moneda input{position:absolute;opacity:0;width:100%;height:100%;margin:0;min-height:0;cursor:pointer}
@@ -301,7 +301,7 @@ details.editar-tarjeta .edicion{padding:0 0 16px 48px}
 html.ocultar .ojo .ver{display:none}
 html.ocultar .ojo .tapado{display:grid}
 html.ocultar .ojo{background:var(--lima);border-color:var(--lima);color:var(--tinta)}
-html.ocultar .dinero .real{display:none}
+html.ocultar .dinero .cifra{display:none}
 html.ocultar .dinero::before{content:attr(data-tapado)}
 html.ocultar input[inputmode=decimal]:not(:focus){-webkit-text-security:disc;text-security:disc}
 @supports not (-webkit-text-security:disc){html.ocultar input[inputmode=decimal]:not(:focus){color:transparent}}
@@ -443,7 +443,7 @@ a.evento:hover .titulo{text-decoration:underline}
   var dinero = /(?:US)?\$\s?\d[\d.]*(?:,\d+)?(?:\s(?:mil|M)\b)?/g;
   var hayDinero = new RegExp(dinero.source);  // sin /g: test() no guarda posición entre llamadas
   var saltar = {SCRIPT: 1, STYLE: 1, TEXTAREA: 1, INPUT: 1, OPTION: 1, SELECT: 1};
-  // Cada monto queda como <span class="dinero" data-tapado="$ *****"><span class="real">$ 1.500</span></span>
+  // Cada monto queda como <span class="dinero" data-tapado="$ *****"><span class="cifra">$ 1.500</span></span>
   function envolver(raiz) {
     if (raiz.nodeType === 3) raiz = raiz.parentNode;
     if (!raiz || !raiz.closest || raiz.closest('.dinero')) return;
@@ -461,7 +461,7 @@ a.evento:hover .titulo{text-decoration:underline}
         frag.appendChild(document.createTextNode(texto.slice(ultimo, pos)));
         var s = document.createElement('span'), real = document.createElement('span');
         s.className = 'dinero'; s.dataset.tapado = (m.indexOf('US') === 0 ? 'US$' : '$') + ' *****';
-        real.className = 'real'; real.textContent = m; s.appendChild(real); frag.appendChild(s);
+        real.className = 'cifra'; real.textContent = m; s.appendChild(real); frag.appendChild(s);
         ultimo = pos + m.length;
       });
       frag.appendChild(document.createTextNode(texto.slice(ultimo)));

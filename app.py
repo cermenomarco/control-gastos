@@ -518,11 +518,13 @@ def renderizar(vista):
             {"numero": numero, "vence": date.fromisoformat(vence), "monto": monto, "pagada": bool(pagada)}
         )
     items_por_objetivo = {}
-    for iid, oid, nombre_i, estimado, real, cubierto in con.execute(
-        "SELECT id, objetivo_id, nombre, estimado, real, cubierto FROM objetivo_items ORDER BY cubierto, id"
+    for iid, oid, nombre_i, estimado, real, cubierto, moneda_i, cot_i in con.execute(
+        "SELECT id, objetivo_id, nombre, estimado, real, cubierto, COALESCE(moneda, 'ARS'), cotizacion"
+        " FROM objetivo_items ORDER BY cubierto, id"
     ):
         items_por_objetivo.setdefault(oid, []).append(
-            {"id": iid, "nombre": nombre_i, "estimado": estimado, "real": real, "cubierto": bool(cubierto)}
+            {"id": iid, "nombre": nombre_i, "estimado": estimado, "real": real, "cubierto": bool(cubierto),
+             "moneda": moneda_i, "cotizacion": cot_i}
         )
     filas_objetivos = con.execute("SELECT id, nombre, fecha_meta FROM objetivos ORDER BY id").fetchall()
     filas_prestamos = con.execute(
@@ -605,7 +607,7 @@ def renderizar(vista):
         items = items_por_objetivo.get(oid, [])
         fecha_meta = date.fromisoformat(meta) if meta else None
         objetivos.append({"id": oid, "nombre": nombre_o, "fecha_meta": fecha_meta, "lista": items,
-                          **resumen_objetivo(items, fecha_meta, hoy_)})
+                          **resumen_objetivo(items, fecha_meta, hoy_, ccl_hoy)})
     objetivos.sort(key=lambda o: o["completo"])  # los terminados al final
     saldo_rol = {rol: sum(p["pendiente"] for p in lista) for rol, lista in prestamos.items()}
     proyeccion_meses = proyeccion(fijos, proximos, hoy_, impagas, registrados=registrados, ccl=ccl_hoy)
@@ -1218,7 +1220,9 @@ def agregar_item(id_):
     if not nombre or estimado <= 0:
         return redirect(url_for("ver_objetivos", error="item", _anchor=f"objetivo-{id_}"))
     con = conectar()
-    con.execute("INSERT INTO objetivo_items (objetivo_id, nombre, estimado) VALUES (?, ?, ?)", (id_, nombre, estimado))
+    moneda = "USD" if request.form.get("moneda") == "USD" else "ARS"
+    con.execute("INSERT INTO objetivo_items (objetivo_id, nombre, estimado, moneda) VALUES (?, ?, ?, ?)",
+                (id_, nombre, estimado, moneda))
     con.commit()
     con.close()
     return redirect(url_for("ver_objetivos", _anchor=f"objetivo-{id_}"))
@@ -1234,12 +1238,18 @@ def cubrir_item(id_, item_id):
     if real is not None and real <= 0:
         return redirect(url_for("ver_objetivos", error="item", _anchor=f"objetivo-{id_}"))
     con = conectar()
-    fila = con.execute("SELECT cubierto FROM objetivo_items WHERE id = ? AND objetivo_id = ?", (item_id, id_)).fetchone()
+    fila = con.execute("SELECT cubierto, COALESCE(moneda, 'ARS') FROM objetivo_items WHERE id = ? AND objetivo_id = ?",
+                       (item_id, id_)).fetchone()
     if fila:
         if fila[0]:
-            con.execute("UPDATE objetivo_items SET cubierto = 0, real = NULL WHERE id = ?", (item_id,))
+            con.execute("UPDATE objetivo_items SET cubierto = 0, real = NULL, cotizacion = NULL WHERE id = ?", (item_id,))
         else:
-            con.execute("UPDATE objetivo_items SET cubierto = 1, real = ? WHERE id = ?", (real, item_id))
+            cot = None
+            if fila[1] == "USD":  # queda fijo el CCL del día en que lo cubriste
+                cotizacion.actualizar()
+                dato = cotizacion.ccl_de(date.today())
+                cot = dato["valor"] if dato else None
+            con.execute("UPDATE objetivo_items SET cubierto = 1, real = ?, cotizacion = ? WHERE id = ?", (real, cot, item_id))
         con.commit()
     con.close()
     return redirect(url_for("ver_objetivos", _anchor=f"objetivo-{id_}"))

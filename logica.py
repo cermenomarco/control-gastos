@@ -292,21 +292,38 @@ def uso_limites(limites, proximos):
     return filas
 
 
-def resumen_objetivo(items, fecha_meta, hoy):
-    """Totales de un objetivo. items: dicts con estimado, real y cubierto.
+def resumen_objetivo(items, fecha_meta, hoy, ccl=None):
+    """Totales de un objetivo. items: dicts con estimado, real, cubierto, moneda y cotizacion.
     Lo cubierto vale el monto real si se cargó; lo que falta, el estimado.
-    Si hay fecha meta, calcula cuánto ahorrar por mes para llegar (contando el mes actual)."""
-    cubierto = sum((i["real"] if i["real"] is not None else i["estimado"]) for i in items if i["cubierto"])
-    falta = sum(i["estimado"] for i in items if not i["cubierto"])
+    Los ítems en dólares se pasan a pesos: los cubiertos al CCL del día en que se cubrieron, los pendientes al CCL de hoy.
+    Con fecha meta calcula cuánto ahorrar por mes (contando el mes actual), separado en pesos y en dólares."""
+    def a_pesos(i, monto):
+        if i.get("moneda") != "USD":
+            return monto
+        cot = (i.get("cotizacion") if i["cubierto"] else None) or ccl
+        return monto * cot if cot else 0
+
+    for i in items:
+        i["pesos"] = a_pesos(i, i["real"] if i["cubierto"] and i["real"] is not None else i["estimado"])
+    cubierto = sum(i["pesos"] for i in items if i["cubierto"])
+    falta = sum(i["pesos"] for i in items if not i["cubierto"])
+    falta_ars = sum(i["estimado"] for i in items if not i["cubierto"] and i.get("moneda") != "USD")
+    falta_usd = sum(i["estimado"] for i in items if not i["cubierto"] and i.get("moneda") == "USD")
     total = cubierto + falta
-    meses = ahorro = None
-    if fecha_meta and falta > 0:
+    meses = ahorro = ahorro_ars = ahorro_usd = None
+    vencida = False
+    if fecha_meta and (falta_ars or falta_usd):
         meses = (fecha_meta.year * 12 + fecha_meta.month) - (hoy.year * 12 + hoy.month) + 1
-        ahorro = falta / meses if meses > 0 else None
+        if fecha_meta < hoy or meses <= 0:
+            vencida, meses = True, None
+        else:
+            ahorro, ahorro_ars, ahorro_usd = falta / meses, falta_ars / meses, falta_usd / meses
     return {
-        "presupuesto": sum(i["estimado"] for i in items), "cubierto": cubierto, "falta": falta,
+        "presupuesto": total, "cubierto": cubierto, "falta": falta, "falta_ars": falta_ars, "falta_usd": falta_usd,
         "avance": cubierto / total * 100 if total else 0, "meses": meses, "ahorro_mensual": ahorro,
-        "completo": bool(items) and falta == 0,
+        "ahorro_ars": ahorro_ars, "ahorro_usd": ahorro_usd, "vencida": vencida,
+        "completo": bool(items) and not (falta_ars or falta_usd),
+        "tiene_usd": any(i.get("moneda") == "USD" for i in items),
     }
 
 

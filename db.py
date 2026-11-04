@@ -136,6 +136,8 @@ COLUMNAS = {
     ],
     "fijos": ["cancelado_en TEXT", "activo_hasta TEXT", "moneda TEXT DEFAULT 'ARS'",
               "confirmar_desde TEXT"],  # desde qué día se piden confirmar los cobros
+    # Ítems de objetivos en dólares: estimado y real quedan en US$; al cubrirlos se guarda el CCL de ese día
+    "objetivo_items": ["moneda TEXT DEFAULT 'ARS'", "cotizacion REAL"],
     "tarjetas": ["modalidad TEXT DEFAULT 'credito'", "dia_cierre INTEGER", "dia_vencimiento INTEGER", "limite REAL",
                  "moneda TEXT DEFAULT 'ARS'"],  # ARS, USD o AMBAS
 }
