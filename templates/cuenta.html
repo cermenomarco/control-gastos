@@ -30,7 +30,19 @@
   {% endif %}
 
   {% if not usuario.debe_cambiar %}
-  <section class="card" id="ccl">
+  <section class="card" id="apariencia">
+    <div class="cabeza"><h2>Apariencia</h2></div>
+    <form method="post" action="{{ url_for('guardar_tema') }}" class="opciones-tema" role="radiogroup" aria-label="Tema">
+      {% for valor, rotulo, ayuda in [('auto', 'Automático', 'Como tu celular'), ('claro', 'Claro', 'Fondo claro'), ('oscuro', 'Oscuro', 'Fondo oscuro')] %}
+      <button name="tema" value="{{ valor }}" class="tema-op{% if (usuario.tema or 'auto') == valor %} activo{% endif %}" aria-pressed="{{ 'true' if (usuario.tema or 'auto') == valor else 'false' }}">
+        <span class="muestra muestra-{{ valor }}"></span><b>{{ rotulo }}</b><span class="lbl">{{ ayuda }}</span>
+      </button>
+      {% endfor %}
+    </form>
+    <p class="lbl" style="margin-bottom:0">Para ocultar los montos (por ejemplo, en público), tocá el ojo de arriba: queda así en este dispositivo hasta que lo vuelvas a tocar.</p>
+  </section>
+
+  <section class="card" id="ccl" data-publico>
     <div class="cabeza"><h2>Dólar de referencia (CCL)</h2></div>
     {% if ccl %}
     <div class="fila">

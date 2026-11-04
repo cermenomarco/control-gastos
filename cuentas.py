@@ -43,7 +43,22 @@ def _con():
                ultimo_acceso TEXT
            )"""
     )
+    columnas = {fila[1] for fila in con.execute("PRAGMA table_info(usuarios)")}
+    if "tema" not in columnas:  # 'auto' (como el celular), 'claro' u 'oscuro'
+        con.execute("ALTER TABLE usuarios ADD COLUMN tema TEXT NOT NULL DEFAULT 'auto'")
+        con.commit()
     return con
+
+
+TEMAS = ("auto", "claro", "oscuro")
+
+
+def guardar_tema(uid, tema):
+    if tema in TEMAS:
+        con = _con()
+        con.execute("UPDATE usuarios SET tema = ? WHERE id = ?", (tema, uid))
+        con.commit()
+        con.close()
 
 
 def _ahora():

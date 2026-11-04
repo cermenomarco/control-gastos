@@ -60,11 +60,11 @@
         <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:16px">
           {% if not f.cancelado %}
           <form method="post" action="{{ url_for('cancelar_fijo', id_=f.id) }}" onsubmit="return confirm('¿Cancelar {{ f.nombre }}? La seguís teniendo hasta el próximo cobro, que ya no se hace.')">
-            <button class="borrar">{{ icono('cerrar', 14) }} Cancelar {{ 'suscripción' if f.tipo == 'Suscripción' else 'gasto fijo' }}</button>
+            <button class="btn sec chico">Cancelar {{ 'suscripción' if f.tipo == 'Suscripción' else 'gasto fijo' }}</button>
           </form>
           {% endif %}
           <form method="post" action="{{ url_for('eliminar_fijo', id_=f.id) }}" onsubmit="return confirm('¿Borrar {{ f.nombre }} y todo su historial? Si solo la diste de baja, mejor cancelala.')">
-            <button class="borrar">Borrar del todo</button>
+            <button class="quitar">{{ icono('papelera', 16) }} Borrar del todo</button>
           </form>
         </div>
       </div>
@@ -84,7 +84,7 @@
         <div class="detalle">{{ f.tipo }} · {{ f.monto|peso }} · terminó el {{ f.hasta|fecha_corta }}{% if f.hasta.year != f.cancelado_en.year %} de {{ f.hasta.year }}{% endif %}</div>
         <div class="acciones">
           <form method="post" action="{{ url_for('reactivar_fijo', id_=f.id) }}"><button class="btn sec chico">{{ icono('deshacer', 14) }} Reactivar</button></form>
-          <form method="post" action="{{ url_for('eliminar_fijo', id_=f.id) }}" onsubmit="return confirm('¿Borrar {{ f.nombre }} y su historial?')"><button class="borrar">Borrar</button></form>
+          <form method="post" action="{{ url_for('eliminar_fijo', id_=f.id) }}" onsubmit="return confirm('¿Borrar {{ f.nombre }} y su historial?')"><button class="quitar">{{ icono('papelera', 16) }} Borrar</button></form>
         </div>
       </div>
     </div>

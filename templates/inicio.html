@@ -118,7 +118,7 @@
   <div class="chips">
     <span><b>{{ cantidad }}</b> gasto{{ 's' if cantidad != 1 }} este mes</span>
     {% if usd_mes %}<span>Incluye <b>{{ usd_mes|usd }}</b></span>{% endif %}
-    {% if ccl %}<a class="chip-link" href="{{ url_for('mi_cuenta') }}#ccl" title="Fuente: {{ ccl.fuente }} · dato del {{ ccl.fecha|fecha_corta }}"><span>CCL <b>{{ ccl.valor|peso }}</b>{% if ccl.fecha|dias_hasta < 0 %} · {{ ccl.fecha|fecha_corta }}{% endif %}</span></a>{% endif %}
+    {% if ccl %}<span data-publico title="Dólar CCL · dato del {{ ccl.fecha|fecha_corta }}">CCL <b>{{ ccl.valor|peso }}</b>{% if ccl.fecha|dias_hasta < 0 %} · {{ ccl.fecha|fecha_corta }}{% endif %}</span>{% endif %}
     {% if tarjeta_top %}<span>{{ icono('tarjetas', 16) }} Más usada: <b>{{ tarjeta_top[0] }}</b></span>{% endif %}
     {% if banco_top %}<span>{{ icono('banco', 16) }} Banco: <b>{{ banco_top[0] }}</b></span>{% endif %}
   </div>

@@ -4,6 +4,24 @@
   {% for fecha, del_dia in filas|groupby('1')|reverse %}
   <div class="dia">{{ fecha|dia }}</div>
     {% for id, f, monto, cat, desc, medio, moneda, monto_usd, cot in del_dia %}
+    {% if borrar %}
+    <details class="desplegable">
+      <summary class="fila">
+        {{ ico_categoria(cat) }}
+        <div class="cuerpo">
+          <div class="titulo">{{ desc or cat|capitalize }}</div>
+          <div class="detalle">{% if desc %}{{ cat|capitalize }} · {% endif %}{{ medio }}</div>
+        </div>
+        <div class="monto">{% if moneda == 'USD' %}{{ monto_usd|usd }}<div class="chico" title="CCL {{ cot|peso }}">≈ {{ monto|peso }}</div>{% else %}{{ monto|peso }}{% endif %}</div>
+      </summary>
+      <div class="acciones-fila">
+        {% if moneda == 'USD' %}<span class="lbl">Convertido al CCL {{ cot|peso }}</span>{% endif %}
+        <form method="post" action="{{ url_for('eliminar', id_=id, mes=filtros.mes, dia=filtros.dia, tarjeta_id=filtros.tarjeta, banco_id=filtros.banco) }}" onsubmit="return confirm('¿Borrar este gasto?')">
+          <button class="quitar">{{ icono('papelera', 16) }} Borrar gasto</button>
+        </form>
+      </div>
+    </details>
+    {% else %}
     <div class="fila">
       {{ ico_categoria(cat) }}
       <div class="cuerpo">
@@ -11,12 +29,8 @@
         <div class="detalle">{% if desc %}{{ cat|capitalize }} · {% endif %}{{ medio }}</div>
       </div>
       <div class="monto">{% if moneda == 'USD' %}{{ monto_usd|usd }}<div class="chico" title="CCL {{ cot|peso }}">≈ {{ monto|peso }}</div>{% else %}{{ monto|peso }}{% endif %}</div>
-      {% if borrar %}
-      <form method="post" action="{{ url_for('eliminar', id_=id, mes=filtros.mes, dia=filtros.dia, tarjeta_id=filtros.tarjeta, banco_id=filtros.banco) }}" onsubmit="return confirm('¿Borrar este gasto?')">
-        <button class="borrar" title="Borrar gasto" aria-label="Borrar gasto">{{ icono('cerrar', 16) }}</button>
-      </form>
-      {% endif %}
     </div>
+    {% endif %}
     {% endfor %}
   {% endfor %}
 {%- endmacro %}

@@ -1,14 +1,20 @@
 {%- from "_iconos.html" import icono, ico_categoria -%}
 {%- set PRINCIPALES = [('inicio', 'Inicio', 'inicio'), ('ver_gastos', 'Gastos', 'gastos'), ('ver_tarjetas', 'Tarjetas', 'tarjetas'), ('ver_calendario', 'Calendario', 'calendario')] -%}
 {%- set SECUNDARIAS = [('ver_proyeccion', 'Proyección', 'proyeccion'), ('ver_fijos', 'Gastos fijos', 'fijos'), ('ver_prestamos', 'Préstamos', 'prestamos'), ('ver_objetivos', 'Objetivos', 'objetivos')] -%}
+{%- set tema = usuario.tema if usuario and usuario.tema in ('claro', 'oscuro') else '' -%}
 <!doctype html>
-<html lang="es">
+<html lang="es"{% if tema %} data-tema="{{ tema }}"{% endif %}>
 <head>
+<script>
+  // Antes de dibujar la página: si dejaste los montos ocultos en este dispositivo, arrancan ocultos
+  try { if (localStorage.getItem('marquito-ocultar') === '1') document.documentElement.classList.add('ocultar'); } catch (e) {}
+</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>{% block titulo %}Marquito{% endblock %}</title>
-<meta name="theme-color" content="#F6F9E8" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0F1A12" media="(prefers-color-scheme: dark)">
+{% if tema %}<meta name="theme-color" content="{{ '#0F1A12' if tema == 'oscuro' else '#F6F9E8' }}">
+{% else %}<meta name="theme-color" content="#F6F9E8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F1A12" media="(prefers-color-scheme: dark)">{% endif %}
 <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
 <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
 <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
@@ -25,13 +31,20 @@
   --ok:var(--cascara);--alerta:#C23F22;--aviso:#8A5A00;
   --medidor-bg:var(--tinta);--medidor-sub:#A3B0A5;
   --s1:#4E9B31;--s2:#7A5CD6;--s3:#E8683F; /* series del gráfico, validadas para daltonismo */
-  --r-control:12px;--r-tarjeta:20px;
+  --r-control:12px;--r-tarjeta:20px;--plastico:var(--tinta);
 }
-@media (prefers-color-scheme:dark){:root{
+/* Tema: "Automático" sigue al celular; "Claro" u "Oscuro" (elegido en Mi cuenta) manda sobre el celular */
+@media (prefers-color-scheme:dark){:root:not([data-tema=claro]){
   --bg:var(--tinta);--card:#1A2A1E;--suave:#22352A;--txt:var(--pulpa);--mut:#A3B0A5;--line:#2E4034;
   --ok:var(--lima);--alerta:var(--coral);--aviso:var(--sol);
-  --medidor-bg:#1A2A1E;
+  --medidor-bg:#1A2A1E;--plastico:#22352A;color-scheme:dark;
 }}
+:root[data-tema=oscuro]{
+  --bg:var(--tinta);--card:#1A2A1E;--suave:#22352A;--txt:var(--pulpa);--mut:#A3B0A5;--line:#2E4034;
+  --ok:var(--lima);--alerta:var(--coral);--aviso:var(--sol);
+  --medidor-bg:#1A2A1E;--plastico:#22352A;color-scheme:dark;
+}
+:root[data-tema=claro]{color-scheme:light}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;font:400 16px/1.5 Inter,system-ui,sans-serif;background:var(--bg);color:var(--txt)}
@@ -51,6 +64,10 @@ a{color:inherit}
 .cabecera{max-width:960px;margin:0 auto;padding:16px 16px 0;display:flex;align-items:center;gap:16px}
 .cabecera .logo{display:block;height:30px}
 .cabecera .logo img{height:30px;width:auto;display:block}
+.logo-oscuro{display:none!important}
+@media (prefers-color-scheme:dark){:root:not([data-tema=claro]) .logo-claro{display:none!important}:root:not([data-tema=claro]) .logo-oscuro{display:block!important}}
+:root[data-tema=oscuro] .logo-claro{display:none!important}
+:root[data-tema=oscuro] .logo-oscuro{display:block!important}
 .cabecera .acciones{margin-left:auto;display:flex;align-items:center;gap:8px}
 .chip-mes{font:500 13px Inter;color:var(--mut);padding:6px 12px;border:1px solid var(--line);border-radius:999px}
 .boton-icono{display:grid;place-items:center;width:40px;height:40px;border-radius:999px;color:var(--txt);text-decoration:none;background:none;border:1px solid var(--line);cursor:pointer}
@@ -190,7 +207,7 @@ tr:last-child td{border-bottom:none}
 .hero{margin-bottom:20px}
 .monto-hero{font:700 44px/1.1 Poppins;letter-spacing:-.02em;margin-top:4px}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
-.chips span{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;background:var(--card);
+.chips > span{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;background:var(--card);
   border:1px solid var(--line);font-size:13px;color:var(--mut)}
 .chips b{color:var(--txt);font-weight:600}
 .agregar{margin-bottom:16px}
@@ -202,9 +219,8 @@ tr:last-child td{border-bottom:none}
 
 /* ---------- Tarjetas "de plástico" ---------- */
 .plasticos{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-bottom:16px}
-.plastico{background:var(--tinta);color:var(--pulpa);border-radius:var(--r-tarjeta);padding:18px 20px;min-height:168px;
+.plastico{background:var(--plastico);color:var(--pulpa);border-radius:var(--r-tarjeta);padding:18px 20px;min-height:168px;
   display:flex;flex-direction:column;gap:6px;border:1px solid var(--line)}
-@media (prefers-color-scheme:dark){.plastico{background:#22352A}}
 .plastico.debito{background:var(--cascara)}
 .plastico .marca-t{display:flex;justify-content:space-between;align-items:center}
 .plastico .marca-t b{font:600 16px Poppins}
@@ -259,8 +275,6 @@ tr:last-child td{border-bottom:none}
 .seg-moneda span{display:grid;place-items:center;min-width:44px;padding:0 8px;border-radius:9px;font:600 14px Poppins;color:var(--mut)}
 .seg-moneda input:checked + span{background:var(--lima);color:var(--tinta)}
 .seg-moneda input:focus-visible + span{outline:2px solid var(--ok);outline-offset:1px}
-a.chip-link{text-decoration:none}
-a.chip-link span:hover{border-color:var(--ok)}
 .saldos{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline}
 .pagar-form{display:grid;gap:12px;padding:12px;margin-top:8px;border:1px solid var(--line);border-radius:var(--r-control);background:var(--suave)}
 .pagar-form .opciones{display:flex;flex-direction:column;gap:6px}
@@ -273,7 +287,7 @@ details.pagar[open] > summary{display:none}
 details.editar-tarjeta{border-bottom:1px solid var(--line)}
 details.editar-tarjeta > summary{list-style:none;border:none}
 details.editar-tarjeta > summary::-webkit-details-marker{display:none}
-details.editar-tarjeta[open] > summary .btn{visibility:hidden}
+details.editar-tarjeta[open] > summary .btn,details.desplegable[open] > summary .btn{visibility:hidden}
 details.editar-tarjeta .edicion{padding:0 0 16px 48px}
 @media (max-width:480px){details.editar-tarjeta .edicion{padding-left:0}}
 
@@ -281,6 +295,42 @@ details.editar-tarjeta .edicion{padding:0 0 16px 48px}
 .monto-confirmar{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:var(--r-control);background:var(--card);padding:0 4px 0 10px}
 .monto-confirmar span{font:600 13px Poppins;color:var(--mut)}
 .monto-confirmar input{border:none;min-height:34px;padding:4px 6px;width:96px;background:none}
+
+/* ---------- Ocultar montos ---------- */
+.ojo .tapado{display:none}
+html.ocultar .ojo .ver{display:none}
+html.ocultar .ojo .tapado{display:grid}
+html.ocultar .ojo{background:var(--lima);border-color:var(--lima);color:var(--tinta)}
+html.ocultar .dinero .real{display:none}
+html.ocultar .dinero::before{content:attr(data-tapado)}
+html.ocultar input[inputmode=decimal]:not(:focus){-webkit-text-security:disc;text-security:disc}
+@supports not (-webkit-text-security:disc){html.ocultar input[inputmode=decimal]:not(:focus){color:transparent}}
+html.ocultar .grafico .valor{visibility:hidden}
+
+/* ---------- Filas que se despliegan para sus acciones (en vez de una X) ---------- */
+details.desplegable{border-bottom:1px solid var(--line)}
+details.desplegable:last-of-type{border-bottom:none}
+details.desplegable > summary{list-style:none;cursor:pointer}
+details.desplegable > summary::-webkit-details-marker{display:none}
+details.desplegable > summary.fila{border:none}
+details.desplegable[open] > summary{background:var(--suave);border-radius:var(--r-control);margin:4px -8px 0;padding-left:8px;padding-right:8px}
+details.desplegable .acciones-fila{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:12px 0 16px 48px}
+@media (max-width:480px){details.desplegable .acciones-fila{padding-left:0}}
+.quitar{display:inline-flex;align-items:center;gap:6px;background:none;border:1.5px solid color-mix(in srgb,var(--alerta) 55%,transparent);
+  color:var(--alerta);border-radius:999px;min-height:36px;padding:6px 14px;font:600 13px Poppins;cursor:pointer}
+.quitar:hover{background:color-mix(in srgb,var(--alerta) 10%,transparent)}
+.papelera{display:grid;place-items:center;width:36px;height:36px;border:none;border-radius:999px;background:none;color:var(--mut);cursor:pointer;flex:none}
+.papelera:hover{color:var(--alerta);background:color-mix(in srgb,var(--alerta) 10%,transparent)}
+
+.opciones-tema{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.tema-op{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 8px;border:2px solid var(--line);border-radius:var(--r-control);
+  background:var(--card);color:var(--txt);cursor:pointer;font:inherit}
+.tema-op.activo{border-color:var(--lima)}
+.tema-op .lbl{font-size:12px;text-align:center}
+.muestra{width:44px;height:30px;border-radius:8px;border:1px solid var(--line);margin-bottom:4px}
+.muestra-claro{background:linear-gradient(135deg,#F6F9E8 60%,#C6F135 60%)}
+.muestra-oscuro{background:linear-gradient(135deg,#0F1A12 60%,#C6F135 60%)}
+.muestra-auto{background:linear-gradient(90deg,#F6F9E8 50%,#0F1A12 50%)}
 
 /* ---------- Cuentas ---------- */
 .avatar{display:grid;place-items:center;width:40px;height:40px;border-radius:999px;background:var(--lima);color:var(--tinta);
@@ -352,12 +402,13 @@ a.evento:hover .titulo{text-decoration:underline}
 <body>
 <header class="cabecera">
   <a class="logo" href="{{ url_for('inicio') }}" aria-label="Marquito, inicio">
-    <picture>
-      <source srcset="{{ url_for('static', filename='marquito-horizontal-sobre-oscuro.svg') }}" media="(prefers-color-scheme: dark)">
-      <img src="{{ url_for('static', filename='marquito-horizontal-sobre-claro.svg') }}" alt="marquito" width="125" height="30">
-    </picture>
+    <img class="logo-claro" src="{{ url_for('static', filename='marquito-horizontal-sobre-claro.svg') }}" alt="marquito" width="125" height="30">
+    <img class="logo-oscuro" src="{{ url_for('static', filename='marquito-horizontal-sobre-oscuro.svg') }}" alt="" width="125" height="30">
   </a>
   <div class="acciones">
+    <button type="button" class="boton-icono ojo" id="ojo" aria-pressed="false" title="Ocultar montos" aria-label="Ocultar montos">
+      <span class="ver">{{ icono('ojo', 18) }}</span><span class="tapado">{{ icono('ojo_tachado', 18) }}</span>
+    </button>
     <span class="chip-mes">{{ mes_nombre[:3] }}</span>
     {% if usuario %}<a class="avatar" href="{{ url_for('mi_cuenta') }}" title="{{ usuario.nombre }} · Mi cuenta" aria-label="Mi cuenta ({{ usuario.nombre }})">{{ usuario.nombre[:1]|upper }}</a>{% endif %}
   </div>
@@ -386,6 +437,92 @@ a.evento:hover .titulo{text-decoration:underline}
     </div>
   </details>
 </nav>
+<script>
+// ---- Ocultar montos (el ojito): se recuerda en este dispositivo ----
+(function () {
+  var dinero = /(?:US)?\$\s?\d[\d.]*(?:,\d+)?(?:\s(?:mil|M)\b)?/g;
+  var hayDinero = new RegExp(dinero.source);  // sin /g: test() no guarda posición entre llamadas
+  var saltar = {SCRIPT: 1, STYLE: 1, TEXTAREA: 1, INPUT: 1, OPTION: 1, SELECT: 1};
+  // Cada monto queda como <span class="dinero" data-tapado="$ *****"><span class="real">$ 1.500</span></span>
+  function envolver(raiz) {
+    if (raiz.nodeType === 3) raiz = raiz.parentNode;
+    if (!raiz || !raiz.closest || raiz.closest('.dinero')) return;
+    var recorrer = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        var padre = n.parentNode;
+        return (!saltar[padre.nodeName] && !padre.closest('.dinero, [data-publico]') && hayDinero.test(n.nodeValue)) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      }
+    });
+    var nodos = [];
+    while (recorrer.nextNode()) nodos.push(recorrer.currentNode);
+    nodos.forEach(function (nodo) {
+      var texto = nodo.nodeValue, frag = document.createDocumentFragment(), ultimo = 0;
+      texto.replace(dinero, function (m, pos) {
+        frag.appendChild(document.createTextNode(texto.slice(ultimo, pos)));
+        var s = document.createElement('span'), real = document.createElement('span');
+        s.className = 'dinero'; s.dataset.tapado = (m.indexOf('US') === 0 ? 'US$' : '$') + ' *****';
+        real.className = 'real'; real.textContent = m; s.appendChild(real); frag.appendChild(s);
+        ultimo = pos + m.length;
+      });
+      frag.appendChild(document.createTextNode(texto.slice(ultimo)));
+      nodo.parentNode.replaceChild(frag, nodo);
+    });
+  }
+  envolver(document.body);
+  // Los montos que se escriben después (la vista previa al cargar un gasto) también se tapan
+  new MutationObserver(function (cambios) {
+    cambios.forEach(function (c) { envolver(c.target); });
+  }).observe(document.body, {childList: true, characterData: true, subtree: true});
+  var html = document.documentElement, ojo = document.getElementById('ojo');
+  function pintar() {
+    var oculto = html.classList.contains('ocultar');
+    if (!ojo) return;
+    ojo.setAttribute('aria-pressed', oculto);
+    ojo.title = oculto ? 'Mostrar montos' : 'Ocultar montos';
+    ojo.setAttribute('aria-label', ojo.title);
+  }
+  if (ojo) ojo.addEventListener('click', function () {
+    html.classList.toggle('ocultar');
+    try { localStorage.setItem('marquito-ocultar', html.classList.contains('ocultar') ? '1' : '0'); } catch (e) {}
+    pintar();
+  });
+  pintar();
+})();
+
+// ---- Montos con puntos de miles mientras escribís (1400000 → 1.400.000) ----
+(function () {
+  function formatear(valor) {
+    var coma = valor.indexOf(',');
+    var entero = (coma >= 0 ? valor.slice(0, coma) : valor).replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+    var dec = coma >= 0 ? ',' + valor.slice(coma + 1).replace(/\D/g, '').slice(0, 2) : '';
+    return entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + dec;
+  }
+  function significativos(texto) { return texto.replace(/[^\d,]/g, '').length; }
+  document.querySelectorAll('input[inputmode=decimal]').forEach(function (campo) {
+    if (campo.value) campo.value = formatear(campo.value.replace(/\.(?=\d{1,2}$)/, ','));  // 1480.5 → 1.480,5
+    campo.addEventListener('beforeinput', function (ev) {
+      // El punto que escribís es la coma decimal (en el teclado argentino del celular aparece la coma)
+      if (ev.data === '.' && !ev.isComposing) {
+        ev.preventDefault();
+        if (campo.value.indexOf(',') < 0) {
+          var i = campo.selectionStart, f = campo.selectionEnd;
+          campo.setRangeText(',', i, f, 'end');
+          campo.dispatchEvent(new Event('input', {bubbles: true}));
+        }
+      }
+    });
+    campo.addEventListener('input', function () {
+      var antes = significativos(campo.value.slice(0, campo.selectionStart));
+      var nuevo = formatear(campo.value);
+      if (nuevo === campo.value) return;
+      campo.value = nuevo;
+      var pos = 0, vistos = 0;
+      while (pos < nuevo.length && vistos < antes) { if (/[\d,]/.test(nuevo[pos])) vistos++; pos++; }
+      campo.setSelectionRange(pos, pos);
+    });
+  });
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

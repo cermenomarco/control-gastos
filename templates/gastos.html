@@ -4,7 +4,7 @@
 {% block contenido %}
   <div class="titulo-pagina">
     <h1>Gastos</h1>
-    <p>{{ filas|length }} gasto{{ 's' if filas|length != 1 }} · <b>{{ total_filtrado|peso }}</b>{% if filtros.dia %} el {{ filtros.dia|dia|lower }}{% elif filtros.mes %} en {{ filtros.mes|mes }}{% else %} en total{% endif %}</p>
+    <p>Tocá un gasto para ver sus opciones. {{ filas|length }} gasto{{ 's' if filas|length != 1 }} · <b>{{ total_filtrado|peso }}</b>{% if filtros.dia %} el {{ filtros.dia|dia|lower }}{% elif filtros.mes %} en {{ filtros.mes|mes }}{% else %} en total{% endif %}</p>
   </div>
 
   <details class="card plegable"{% if filtros.dia or filtros.tarjeta or filtros.banco %} open{% endif %}>

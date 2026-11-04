@@ -139,7 +139,7 @@
       <div class="edicion">
         {{ form_tarjeta(td) }}
         <form method="post" action="{{ url_for('eliminar_tarjeta', id_=tid) }}" onsubmit="return confirm('¿Borrar esta tarjeta? Solo se puede si no tiene gastos ni gastos fijos.')" style="margin-top:16px">
-          <button class="borrar">{{ icono('cerrar', 14) }} Borrar tarjeta</button>
+          <button class="quitar">{{ icono('papelera', 16) }} Borrar tarjeta</button>
         </form>
       </div>
     </details>
@@ -148,11 +148,22 @@
 
     <h3 style="margin:24px 0 4px">Bancos</h3>
     {% for bid, nombre in bancos %}
-    <div class="fila">
-      <span class="ico neutro">{{ icono('banco', 18) }}</span>
-      <div class="cuerpo"><div class="titulo">{{ nombre }}</div></div>
-      <form method="post" action="{{ url_for('eliminar_banco', id_=bid) }}" onsubmit="return confirm('¿Borrar este banco?')"><button class="borrar" aria-label="Borrar banco">{{ icono('cerrar', 16) }}</button></form>
-    </div>
+    <details class="desplegable"{% if request.args.get('banco') == bid|string and request.args.get('error') %} open{% endif %}>
+      <summary class="fila">
+        <span class="ico neutro">{{ icono('banco', 18) }}</span>
+        <div class="cuerpo"><div class="titulo">{{ nombre }}</div></div>
+        <span class="btn sec chico">Editar</span>
+      </summary>
+      <div class="acciones-fila">
+        <form class="form" method="post" action="{{ url_for('editar_banco', id_=bid) }}" style="flex:1;min-width:220px">
+          <label class="campo"><span>Nombre</span><input name="nombre" value="{{ nombre }}" required></label>
+          <div><button class="btn chico">Guardar</button></div>
+        </form>
+        <form method="post" action="{{ url_for('eliminar_banco', id_=bid) }}" onsubmit="return confirm('¿Quitar {{ nombre }}? Solo se puede si no tiene tarjetas ni gastos.')">
+          <button class="quitar">{{ icono('papelera', 16) }} Quitar banco</button>
+        </form>
+      </div>
+    </details>
     {% else %}<p class="vacio">Todavía no cargaste bancos.</p>{% endfor %}
     <form class="form" method="post" action="{{ url_for('agregar_banco') }}" style="margin-top:12px">
       <label class="campo"><span>Nuevo banco</span><input name="nombre" placeholder="Ej: Galicia" required></label>

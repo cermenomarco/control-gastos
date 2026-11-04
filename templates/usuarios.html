@@ -38,7 +38,7 @@
             <button class="btn sec chico">Restablecer contraseña</button>
           </form>
           <form method="post" action="{{ url_for('borrar_usuario', uid=u.id) }}" onsubmit="return confirm('¿Borrar la cuenta de {{ u.nombre }}? Ya no va a poder entrar. Sus datos se guardan como respaldo en el servidor.')">
-            <button class="borrar">{{ icono('cerrar', 14) }} Borrar cuenta</button>
+            <button class="quitar">{{ icono('papelera', 16) }} Borrar cuenta</button>
           </form>
         </div>
         {% endif %}

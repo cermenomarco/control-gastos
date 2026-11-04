@@ -275,6 +275,12 @@ def mi_cuenta():
     return render_template("cuenta.html", error=error, ok=ok, ccl=cotizacion.ccl_de(date.today()), hoy=date.today().isoformat())
 
 
+@app.post("/cuenta/tema")
+def guardar_tema():
+    cuentas.guardar_tema(g.usuario["id"], request.form.get("tema"))
+    return redirect(url_for("mi_cuenta") + "#apariencia")
+
+
 def solo_admin():
     if not g.usuario["es_admin"]:
         abort(404)
@@ -929,6 +935,20 @@ def agregar_banco():
     con.commit()
     con.close()
     return redirect(url_for("ver_tarjetas"))
+
+
+@app.post("/bancos/<int:id_>/editar")
+def editar_banco(id_):
+    nombre = request.form.get("nombre", "").strip()
+    con = conectar()
+    repetido = con.execute("SELECT 1 FROM bancos WHERE nombre = ? COLLATE NOCASE AND id != ?", (nombre, id_)).fetchone()
+    if not nombre or repetido:
+        con.close()
+        return redirect(url_for("ver_tarjetas", error="banco", banco=id_))
+    con.execute("UPDATE bancos SET nombre = ? WHERE id = ?", (nombre, id_))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_tarjetas", banco=id_))
 
 
 @app.post("/bancos/<int:id_>/eliminar")

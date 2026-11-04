@@ -29,7 +29,7 @@
         </div>
         {% endfor %}
         <form method="post" action="{{ url_for('eliminar_prestamo', id_=p.id) }}" onsubmit="return confirm('¿Borrar este préstamo y sus cuotas?')" style="margin-top:16px">
-          <button class="borrar">{{ icono('cerrar', 14) }} Borrar préstamo</button>
+          <button class="quitar">{{ icono('papelera', 16) }} Borrar préstamo</button>
         </form>
       </div>
     </details>

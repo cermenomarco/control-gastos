@@ -42,7 +42,7 @@
         {% if not i.cubierto %}<input class="real" name="real" inputmode="decimal" placeholder="Monto real, si fue distinto (opcional)" aria-label="Monto real de {{ i.nombre }}">{% endif %}
       </form>
       <div class="monto">{{ (i.real if distinto else i.estimado)|peso }}{% if distinto %}<small>est. {{ i.estimado|peso }}</small>{% endif %}</div>
-      <form method="post" action="{{ url_for('eliminar_item', id_=o.id, item_id=i.id) }}" onsubmit="return confirm('¿Borrar {{ i.nombre }}?')"><button class="borrar" aria-label="Borrar {{ i.nombre }}">{{ icono('cerrar', 16) }}</button></form>
+      <form method="post" action="{{ url_for('eliminar_item', id_=o.id, item_id=i.id) }}" onsubmit="return confirm('¿Quitar {{ i.nombre }}?')"><button class="papelera" title="Quitar {{ i.nombre }}" aria-label="Quitar {{ i.nombre }}">{{ icono('papelera', 18) }}</button></form>
     </div>
     {% else %}<p class="vacio">Sumá lo que necesitás: pasajes, alojamiento, comidas...</p>{% endfor %}
     </div>
@@ -53,7 +53,7 @@
       <div><button class="btn sec chico">{{ icono('mas_uno', 14) }} Agregar</button></div>
     </form>
     <form method="post" action="{{ url_for('eliminar_objetivo', id_=o.id) }}" onsubmit="return confirm('¿Borrar {{ o.nombre }} con todos sus ítems?')" style="margin-top:16px">
-      <button class="borrar">{{ icono('cerrar', 14) }} Borrar objetivo</button>
+      <button class="quitar">{{ icono('papelera', 16) }} Borrar objetivo</button>
     </form>
   </section>
   {% endfor %}
