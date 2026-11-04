@@ -1,5 +1,21 @@
 {% extends "base.html" %}
 {% from "_iconos.html" import icono %}
+{% macro form_tarjeta(t=None) %}
+    <form class="form form-tarjeta" method="post" action="{{ url_for('editar_tarjeta', id_=t.id) if t else url_for('agregar_tarjeta') }}">
+      <label class="campo"><span>Tipo</span><select name="tipo">{% for x in tipos %}<option{% if t and t.tipo == x %} selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
+      <label class="campo"><span>Últimos 4 dígitos</span><input name="ultimos4" value="{{ t.ultimos4 if t else '' }}" placeholder="Ej: 4417" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label>
+      <label class="campo"><span>Moneda</span><select name="moneda">{% for k, v in monedas_tarjeta.items() %}<option value="{{ k }}"{% if t and t.moneda == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+      <label class="campo"><span>Crédito o débito</span><select name="modalidad" onchange="cambiarModalidad(this)">{% for k, v in modalidades.items() %}<option value="{{ k }}"{% if t and t.modalidad == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+      <label class="campo"><span>Banco (opcional)</span><select name="banco_id"><option value="">Sin banco</option>{% for bid, nombre in bancos %}<option value="{{ bid }}"{% if t and t.banco_id == bid %} selected{% endif %}>{{ nombre }}</option>{% endfor %}</select></label>
+      <label class="campo solo-credito"><span>Día de cierre</span><input name="dia_cierre" type="number" min="1" max="31" value="{{ t.cierre if t and t.cierre else '' }}" placeholder="Ej: 25"></label>
+      <label class="campo solo-credito"><span>Día de vencimiento</span><input name="dia_vencimiento" type="number" min="1" max="31" value="{{ t.vence if t and t.vence else '' }}" placeholder="Ej: 5"></label>
+      <label class="campo solo-credito"><span>Límite en pesos (opcional)</span><input name="limite" inputmode="decimal" value="{{ t.limite|numero if t and t.limite else '' }}" placeholder="Ej: 1.500.000"></label>
+      <div class="ancho" style="display:flex;gap:12px;flex-wrap:wrap">
+        <button class="btn">{{ 'Guardar cambios' if t else 'Agregar tarjeta' }}</button>
+        {% if t %}<button type="button" class="btn sec" onclick="this.closest('details').open=false">Cancelar</button>{% endif %}
+      </div>
+    </form>
+{% endmacro %}
 {% block contenido %}
   <div class="titulo-pagina">
     <h1>Tarjetas</h1>
@@ -13,10 +29,11 @@
     <article class="plastico{% if t.modalidad == 'debito' %} debito{% endif %}">
       <div class="marca-t">
         <span style="display:flex;align-items:center;gap:8px">{{ simbolo() }}<b>{{ t.tipo }}</b></span>
-        <span class="sub">{{ 'Crédito' if t.modalidad == 'credito' else 'Débito' }}</span>
+        <span class="sub">{{ 'Crédito' if t.modalidad == 'credito' else 'Débito' }} · {{ {'ARS': '$', 'USD': 'US$', 'AMBAS': '$ y US$'}[t.moneda] }}</span>
       </div>
       <div class="sub">{{ t.banco or 'Sin banco' }}{% if t.modalidad == 'credito' and t.cierre %} · cierra el {{ t.cierre }}, vence el {{ t.vence }}{% endif %}</div>
-      <div class="digitos">•••• {{ t.ultimos4 }}</div>
+      <div class="digitos" style="display:flex;justify-content:space-between;align-items:center">•••• {{ t.ultimos4 }}
+        <button type="button" class="editar-plastico" onclick="abrirEdicion({{ t.id }})" aria-label="Editar {{ t.tipo }} {{ t.ultimos4 }}">Editar</button></div>
       {% if t.modalidad == 'credito' %}
         {% if uso %}
         <div class="barra {{ uso.nivel }}" role="img" aria-label="{{ uso.porcentaje|round|int }}% del límite usado"><i style="width:{{ uso.ancho }}%"></i></div>
@@ -44,43 +61,90 @@
       <div class="cuerpo">
         <div class="titulo">{{ p.tarjeta }}</div>
         <div class="detalle">Cierra el {{ p.cierra|fecha_corta }} · vence el {{ p.vence|fecha_corta }}{% if p.intereses > 0 %} · {{ p.intereses|peso }} de interés{% endif %}</div>
+        {% if p.usd %}<div class="detalle">Saldo: <b style="color:var(--txt)">{{ p.pesos|peso }}</b> + <b style="color:var(--txt)">{{ p.usd|usd }}</b></div>{% endif %}
         <div class="acciones">
-          <form method="post" action="{{ url_for('marcar_resumen', id_=p.tarjeta_id, periodo=p.periodo) }}"{% if not p.pagado %} onsubmit="return confirm('¿Ya pagaste este resumen?')"{% endif %}>
-            {% if p.pagado %}<button class="btn sec chico" title="Volver a pendiente">{{ icono('deshacer', 14) }} Deshacer</button>
-            {% else %}<button class="btn chico">{{ icono('ok', 14) }} Lo pagué</button>{% endif %}
+          {% if p.pagado %}
+          <form method="post" action="{{ url_for('marcar_resumen', id_=p.tarjeta_id, periodo=p.periodo) }}">
+            <input type="hidden" name="accion" value="deshacer">
+            <button class="btn sec chico" title="Volver a pendiente">{{ icono('deshacer', 14) }} Deshacer</button>
           </form>
+          {% else %}
+          <details class="pagar">
+            <summary class="btn chico">{{ icono('ok', 14) }} Lo pagué</summary>
+            <form class="pagar-form" method="post" action="{{ url_for('marcar_resumen', id_=p.tarjeta_id, periodo=p.periodo) }}">
+              <input type="hidden" name="usd_ref" value="{{ p.usd_ref }}">
+              <label class="campo"><span>Fecha de pago</span><input type="date" name="fecha" value="{{ hoy }}" required></label>
+              <label class="campo"><span>Pagaste en pesos</span><input name="pesos" inputmode="decimal" value="{{ p.pesos|numero }}"></label>
+              {% if p.usd %}
+              <label class="campo"><span>Pagaste en dólares</span><input name="usd" inputmode="decimal" value="{{ p.usd|numero }}"></label>
+              <div class="campo"><span>¿Cómo pagaste los dólares?</span>
+                <div class="opciones">
+                  <label><input type="radio" name="metodo_usd" value="compra" checked onchange="metodoPago(this)"> Compré dólares y pagué con ellos</label>
+                  <label><input type="radio" name="metodo_usd" value="pesos" onchange="metodoPago(this)"> En pesos (el banco me los convirtió)</label>
+                </div>
+              </div>
+              <label class="campo m-compra"><span>Precio al que compraste cada dólar</span><input name="precio_usd" inputmode="decimal" value="{{ precio_sugerido|numero if precio_sugerido else '' }}"></label>
+              <label class="campo m-pesos hidden"><span>Cuántos pesos pagaste por la parte en dólares</span><input name="pesos_usd" inputmode="decimal"></label>
+              {% endif %}
+              <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn chico">Guardar pago</button>
+                <button type="button" class="btn sec chico" onclick="this.closest('details').open=false">Cancelar</button></div>
+            </form>
+          </details>
+          {% endif %}
           {% if not p.pagado and faltan <= 3 %}<span class="pildora aviso">{{ 'Vence hoy' if faltan == 0 else 'Vence mañana' if faltan == 1 else 'Vence en ' ~ faltan ~ ' días' }}</span>{% endif %}
         </div>
       </div>
-      <div class="monto">{{ p.a_pagar|peso }}</div>
+      <div class="monto">{{ p.a_pagar|peso }}{% if p.usd %}<div class="chico">estimado</div>{% endif %}</div>
     </div>
     {% else %}<p class="vacio">Cuando cargues compras con tarjeta de crédito, acá ves cuánto pagás en cada vencimiento.</p>{% endfor %}
     {% if sin_fechas %}<p class="lbl" style="margin-bottom:0">Para calcular los resúmenes de {{ sin_fechas|join(', ') }} falta el día de cierre y de vencimiento. Guardá la tarjeta de nuevo abajo para completarlos.</p>{% endif %}
-    {% if proximos %}<p class="lbl" style="margin-bottom:0">Lo que marcás como pagado deja de contar en el límite usado y en la proyección.</p>{% endif %}
+    {% if proximos %}<p class="lbl" style="margin-bottom:0">Pagar el resumen no es un gasto nuevo: lo que compraste ya se contó el día de la compra. Al marcarlo como pagado se libera el límite y sale de la proyección. Los dólares pendientes se estiman al CCL de hoy.</p>{% endif %}
   </section>
 
+  {% if pagos %}
+  <details class="card plegable">
+    <summary><h2 style="margin:0">Historial de pagos <span class="mini">{{ pagos|length }}</span></h2></summary>
+    {% for g in pagos %}
+    <div class="fila">
+      <span class="ico neutro">{{ icono('ok', 18) }}</span>
+      <div class="cuerpo">
+        <div class="titulo">{{ g.tarjeta }} · resumen de {{ g.periodo|mes }}</div>
+        {% if g.fecha %}
+        {% set cuando = g.fecha|dia %}<div class="detalle">Pagado {{ cuando|lower if cuando in ('Hoy', 'Ayer') else 'el ' ~ cuando }}{% if g.pesos %} · {{ g.pesos|peso }} en pesos{% endif %}</div>
+        {% if g.usd %}
+        <div class="detalle">{{ g.usd|usd }} {{ 'con dólares comprados' if g.metodo == 'compra' else 'pagados en pesos' }} a {{ g.precio|peso }} → {{ g.costo_usd|peso }}</div>
+        {% if g.diferencia is not none %}<span class="pildora {{ 'ok' if g.diferencia <= 0 else 'aviso' }}" style="margin-top:4px">{{ 'Ahorraste ' ~ (-g.diferencia)|peso ~ ' frente al CCL' if g.diferencia <= 0 else 'Pagaste ' ~ g.diferencia|peso ~ ' más que al CCL' }}</span>{% endif %}
+        {% endif %}
+        {% else %}<div class="detalle">Pagado (sin detalle: lo marcaste antes de que existiera el registro)</div>{% endif %}
+      </div>
+      {% if g.fecha %}<div class="monto">{{ g.total|peso }}</div>{% endif %}
+    </div>
+    {% endfor %}
+  </details>
+  {% endif %}
+
   <details class="card plegable"{% if not tarjetas_det or request.args.get('error') in ('tarjeta', 'banco', 'usado') %} open{% endif %}>
-    <summary><h2 style="margin:0">Agregar o editar tarjetas</h2></summary>
-    <form class="form" method="post" action="{{ url_for('agregar_tarjeta') }}">
-      <label class="campo"><span>Tipo</span><select name="tipo">{% for t in tipos %}<option>{{ t }}</option>{% endfor %}</select></label>
-      <label class="campo"><span>Últimos 4 dígitos</span><input name="ultimos4" placeholder="Ej: 4417" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label>
-      <label class="campo"><span>Crédito o débito</span><select name="modalidad" id="modalidad" onchange="cambiarModalidad()">{% for k, v in modalidades.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
-      <label class="campo"><span>Banco (opcional)</span><select name="banco_id"><option value="">Sin banco</option>{% for bid, nombre in bancos %}<option value="{{ bid }}">{{ nombre }}</option>{% endfor %}</select></label>
-      <label class="campo solo-credito"><span>Día de cierre</span><input name="dia_cierre" id="dia-cierre" type="number" min="1" max="31" placeholder="Ej: 25"></label>
-      <label class="campo solo-credito"><span>Día de vencimiento</span><input name="dia_vencimiento" id="dia-venc" type="number" min="1" max="31" placeholder="Ej: 5"></label>
-      <label class="campo solo-credito"><span>Límite (opcional)</span><input name="limite" inputmode="decimal" placeholder="Ej: 1.500.000"></label>
-      <div class="ancho"><button class="btn">Guardar tarjeta</button></div>
-    </form>
-    <p class="lbl">Solo cargá los últimos 4 dígitos, nunca el número completo. Para corregir una tarjeta, guardala de nuevo con el mismo tipo y los mismos 4 dígitos.</p>
+    <summary><h2 style="margin:0">Tus tarjetas y bancos</h2></summary>
+    <h3 style="margin:0 0 12px">Agregar una tarjeta</h3>
+    {{ form_tarjeta() }}
+    <p class="lbl">Solo cargá los últimos 4 dígitos, nunca el número completo. Para cambiar una tarjeta, tocá "Editar" en la lista de abajo.</p>
 
     {% if tarjetas %}
     <h3 style="margin:24px 0 4px">Tus tarjetas</h3>
-    {% for tid, etiqueta, modalidad, info in tarjetas %}
-    <div class="fila">
-      <span class="ico neutro">{{ icono('tarjetas', 18) }}</span>
-      <div class="cuerpo"><div class="titulo">{{ etiqueta }}</div>{% if info %}<div class="detalle">{{ info }}</div>{% endif %}</div>
-      <form method="post" action="{{ url_for('eliminar_tarjeta', id_=tid) }}" onsubmit="return confirm('¿Borrar esta tarjeta?')"><button class="borrar" aria-label="Borrar tarjeta">{{ icono('cerrar', 16) }}</button></form>
-    </div>
+    {% for (tid, etiqueta, modalidad, info), td in zip(tarjetas, tarjetas_det) %}
+    <details class="editar-tarjeta" id="editar-{{ tid }}"{% if request.args.get('editar') == tid|string %} open{% endif %}>
+      <summary class="fila">
+        <span class="ico neutro">{{ icono('tarjetas', 18) }}</span>
+        <div class="cuerpo"><div class="titulo">{{ etiqueta }}{% if td.moneda != 'ARS' %} <span class="chico">· {{ monedas_tarjeta[td.moneda]|lower }}</span>{% endif %}</div>{% if info %}<div class="detalle">{{ info }}</div>{% endif %}</div>
+        <span class="btn sec chico">Editar</span>
+      </summary>
+      <div class="edicion">
+        {{ form_tarjeta(td) }}
+        <form method="post" action="{{ url_for('eliminar_tarjeta', id_=tid) }}" onsubmit="return confirm('¿Borrar esta tarjeta? Solo se puede si no tiene gastos ni gastos fijos.')" style="margin-top:16px">
+          <button class="borrar">{{ icono('cerrar', 14) }} Borrar tarjeta</button>
+        </form>
+      </div>
+    </details>
     {% endfor %}
     {% endif %}
 
@@ -100,11 +164,25 @@
 {% endblock %}
 {% block scripts %}
 <script>
-function cambiarModalidad() {
-  var credito = document.getElementById('modalidad').value === 'credito';
-  document.querySelectorAll('.solo-credito').forEach(function (el) { el.classList.toggle('hidden', !credito); });
-  ['dia-cierre', 'dia-venc'].forEach(function (id) { document.getElementById(id).required = credito; });
+function cambiarModalidad(select) {
+  var form = select.closest('form'), credito = select.value === 'credito';
+  form.querySelectorAll('.solo-credito').forEach(function (el) { el.classList.toggle('hidden', !credito); });
+  ['dia_cierre', 'dia_vencimiento'].forEach(function (n) { form.querySelector('[name=' + n + ']').required = credito; });
 }
-cambiarModalidad();
+document.querySelectorAll('.form-tarjeta select[name=modalidad]').forEach(cambiarModalidad);
+// "Editar" desde la tarjeta visual: abre la lista y el formulario de esa tarjeta
+function abrirEdicion(id) {
+  var item = document.getElementById('editar-' + id);
+  item.closest('details.card').open = true;
+  item.open = true;
+  item.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+var pedida = document.querySelector('details.editar-tarjeta[open]');
+if (pedida) { pedida.closest('details.card').open = true; pedida.scrollIntoView({block: 'start'}); }
+function metodoPago(radio) {
+  var form = radio.closest('form'), compra = radio.value === 'compra';
+  form.querySelector('.m-compra').classList.toggle('hidden', !compra);
+  form.querySelector('.m-pesos').classList.toggle('hidden', compra);
+}
 </script>
 {% endblock %}

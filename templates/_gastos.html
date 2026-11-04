@@ -3,14 +3,14 @@
 {% macro lista_gastos(filas, borrar=False, filtros=None) -%}
   {% for fecha, del_dia in filas|groupby('1')|reverse %}
   <div class="dia">{{ fecha|dia }}</div>
-    {% for id, f, monto, cat, desc, medio in del_dia %}
+    {% for id, f, monto, cat, desc, medio, moneda, monto_usd, cot in del_dia %}
     <div class="fila">
       {{ ico_categoria(cat) }}
       <div class="cuerpo">
         <div class="titulo">{{ desc or cat|capitalize }}</div>
         <div class="detalle">{% if desc %}{{ cat|capitalize }} · {% endif %}{{ medio }}</div>
       </div>
-      <div class="monto">{{ monto|peso }}</div>
+      <div class="monto">{% if moneda == 'USD' %}{{ monto_usd|usd }}<div class="chico" title="CCL {{ cot|peso }}">≈ {{ monto|peso }}</div>{% else %}{{ monto|peso }}{% endif %}</div>
       {% if borrar %}
       <form method="post" action="{{ url_for('eliminar', id_=id, mes=filtros.mes, dia=filtros.dia, tarjeta_id=filtros.tarjeta, banco_id=filtros.banco) }}" onsubmit="return confirm('¿Borrar este gasto?')">
         <button class="borrar" title="Borrar gasto" aria-label="Borrar gasto">{{ icono('cerrar', 16) }}</button>

@@ -29,6 +29,36 @@
   {% endif %}
   {% endif %}
 
+  {% if not usuario.debe_cambiar %}
+  <section class="card" id="ccl">
+    <div class="cabeza"><h2>Dólar de referencia (CCL)</h2></div>
+    {% if ccl %}
+    <div class="fila">
+      <span class="ico">{{ icono('transferencia', 18) }}</span>
+      <div class="cuerpo">
+        <div class="titulo">{{ ccl.valor|peso }}</div>
+        <div class="detalle">Dato del {{ ccl.fecha|fecha_corta }} · {{ {'dolarapi': 'automático (dolarapi.com)', 'argentinadatos': 'automático (argentinadatos.com)', 'manual': 'cargado a mano'}.get(ccl.fuente, ccl.fuente) }}</div>
+      </div>
+    </div>
+    {% else %}<p class="vacio">Todavía no hay cotización. Se busca sola; si tarda, cargala a mano.</p>{% endif %}
+    <p class="lbl">Los gastos en dólares se convierten a pesos con el CCL del día del gasto. Se actualiza solo (como mucho una vez por hora); los fines de semana y feriados se usa el último día hábil.</p>
+    {% if usuario.es_admin %}
+    <details class="plegable">
+      <summary class="mini">Cargar una cotización a mano</summary>
+      <form class="form" method="post" action="{{ url_for('guardar_cotizacion') }}">
+        <label class="campo"><span>Día</span><input type="date" name="fecha" value="{{ hoy }}" required></label>
+        <label class="campo"><span>CCL (venta)</span><input name="valor" inputmode="decimal" placeholder="Ej: 1.520" required></label>
+        <div><button class="btn sec chico">Guardar</button></div>
+      </form>
+      {% if ccl and ccl.fuente == 'manual' %}
+      <form method="post" action="{{ url_for('cotizacion_automatica') }}" style="margin-top:12px"><button class="borrar">{{ icono('deshacer', 14) }} Volver a la cotización automática de hoy</button></form>
+      {% endif %}
+      <p class="lbl" style="margin-bottom:0">La cotización es la misma para todas las cuentas. La cargada a mano tiene prioridad sobre la automática.</p>
+    </details>
+    {% endif %}
+  </section>
+  {% endif %}
+
   <section class="card">
     <div class="cabeza"><h2>{{ 'Elegí tu contraseña' if usuario.debe_cambiar else 'Cambiar contraseña' }}</h2></div>
     {% if ok %}<div class="aviso-ok" role="status">{{ icono('ok', 16) }} {{ ok }}</div>{% endif %}

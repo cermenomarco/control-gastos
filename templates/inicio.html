@@ -47,11 +47,22 @@
     <div class="card">
       <div class="cabeza"><h2>Nuevo gasto</h2></div>
       <form class="form" method="post" action="{{ url_for('agregar') }}">
-        <label class="campo"><span>Monto</span><input name="monto" placeholder="Ej: 15.000" inputmode="decimal" required autofocus></label>
+        <div class="campo ancho"><span>Monto</span>
+          <div class="monto-moneda">
+            <div class="seg-moneda" id="seg-moneda" role="radiogroup" aria-label="Moneda">
+              <label><input type="radio" name="moneda" value="ARS" checked onchange="actualizarCredito()"><span>$</span></label>
+              <label><input type="radio" name="moneda" value="USD" onchange="actualizarCredito()"><span>US$</span></label>
+            </div>
+            <input name="monto" id="monto" placeholder="Ej: 15.000" inputmode="decimal" required oninput="previa()" aria-label="Monto">
+          </div>
+        </div>
         <label class="campo"><span>Categoría</span><input name="categoria" list="cats" placeholder="Ej: comida" required></label>
         <datalist id="cats">{% for c in cats %}<option value="{{ c }}">{% endfor %}</datalist>
         <label class="campo"><span>Descripción (opcional)</span><input name="descripcion" placeholder="Ej: súper del finde"></label>
         <label class="campo"><span>Fecha</span><input name="fecha" type="date" value="{{ hoy }}" required></label>
+        <label class="campo hidden" id="campo-cotizacion"><span>Cotización CCL{% if ccl %} (vacío = la del día){% endif %}</span>
+          <input name="cotizacion" id="cotizacion" inputmode="decimal" placeholder="{{ ccl.valor|peso if ccl else 'Ej: 1.520' }}" oninput="previa()"
+                 data-ccl="{{ ccl.valor if ccl else '' }}" {% if not ccl %}required{% endif %}></label>
         <label class="campo"><span>¿Cómo pagaste?</span>
           <select name="medio" id="medio" onchange="cambiarMedio()">
             {% for clave, nombre in medios.items() %}<option value="{{ clave }}">{{ nombre }}</option>{% endfor %}
@@ -59,7 +70,7 @@
         <label class="campo" id="campo-tarjeta"><span>Tarjeta</span>
           <select name="tarjeta_id" id="sel-tarjeta" onchange="actualizarCredito()">
             <option value="">Elegí una tarjeta</option>
-            {% for tid, etiqueta, modalidad, info in tarjetas %}<option value="{{ tid }}" data-modalidad="{{ modalidad }}">{{ etiqueta }}</option>{% endfor %}
+            {% for t in tarjetas_det %}<option value="{{ t.id }}" data-modalidad="{{ t.modalidad }}" data-moneda="{{ t.moneda }}">{{ t.etiqueta }}{% if t.moneda == 'USD' %} · US${% elif t.moneda == 'AMBAS' %} · $ y US${% endif %}</option>{% endfor %}
           </select></label>
         <label class="campo hidden" id="campo-banco"><span>Banco</span>
           <select name="banco_id" id="sel-banco">
@@ -69,6 +80,7 @@
         <label class="campo hidden" id="campo-cuotas"><span>Cuotas (1 = un pago)</span><input name="cuotas" id="cuotas" type="number" min="1" max="60" value="1"></label>
         <label class="check hidden" id="lbl-interes"><input type="checkbox" name="con_interes" id="con-interes" onchange="actualizarCredito()"> Con interés</label>
         <label class="campo hidden" id="campo-total"><span>Total a pagar con intereses</span><input name="total_con_interes" id="total-interes" inputmode="decimal"></label>
+        <p class="ancho lbl hidden" id="previa" style="margin:0"></p>
         <div class="ancho" style="display:flex;gap:12px;flex-wrap:wrap">
           <button class="btn">Guardar gasto</button>
           <button type="button" class="btn sec" onclick="document.getElementById('agregar').open=false">Cancelar</button>
@@ -79,6 +91,8 @@
 
   <div class="chips">
     <span><b>{{ cantidad }}</b> gasto{{ 's' if cantidad != 1 }} este mes</span>
+    {% if usd_mes %}<span>Incluye <b>{{ usd_mes|usd }}</b></span>{% endif %}
+    {% if ccl %}<a class="chip-link" href="{{ url_for('mi_cuenta') }}#ccl" title="Fuente: {{ ccl.fuente }} · dato del {{ ccl.fecha|fecha_corta }}"><span>CCL <b>{{ ccl.valor|peso }}</b>{% if ccl.fecha|dias_hasta < 0 %} · {{ ccl.fecha|fecha_corta }}{% endif %}</span></a>{% endif %}
     {% if tarjeta_top %}<span>{{ icono('tarjetas', 16) }} Más usada: <b>{{ tarjeta_top[0] }}</b></span>{% endif %}
     {% if banco_top %}<span>{{ icono('banco', 16) }} Banco: <b>{{ banco_top[0] }}</b></span>{% endif %}
   </div>
@@ -113,14 +127,39 @@ function cambiarMedio() {
   mostrar('campo-banco', medio === 'transferencia');
   actualizarCredito();
 }
+function monedaElegida() { return document.querySelector('input[name=moneda]:checked').value; }
+function fijarMoneda(valor) { document.querySelector('input[name=moneda][value=' + valor + ']').checked = true; }
 function actualizarCredito() {
   var sel = document.getElementById('sel-tarjeta');
   var op = sel.options[sel.selectedIndex];
-  var credito = document.getElementById('medio').value === 'tarjeta' && op && op.dataset.modalidad === 'credito';
+  var conTarjeta = document.getElementById('medio').value === 'tarjeta' && op && op.value;
+  // La tarjeta manda: solo pesos o solo dólares fija la moneda; "pesos y dólares" te deja elegir
+  var monedaTarjeta = conTarjeta ? op.dataset.moneda : 'AMBAS';
+  if (monedaTarjeta === 'ARS' || monedaTarjeta === 'USD') fijarMoneda(monedaTarjeta);
+  mostrar('seg-moneda', monedaTarjeta === 'AMBAS');
+  var enDolares = monedaElegida() === 'USD';
+  var credito = conTarjeta && op.dataset.modalidad === 'credito' && !enDolares;  // en dólares: un solo pago
   var interes = document.getElementById('con-interes').checked;
   mostrar('campo-cuotas', credito);
   mostrar('lbl-interes', credito);
   mostrar('campo-total', credito && interes);
+  mostrar('campo-cotizacion', enDolares);
+  previa();
+}
+function numero(texto) {  // mismo criterio que la app: 1.500,50 · 1.500.000 · 1500.50
+  texto = (texto || '').replace(/\s/g, '');
+  if (texto.indexOf(',') >= 0) texto = texto.replace(/\./g, '').replace(',', '.');
+  else if ((texto.match(/\./g) || []).length > 1 || /\.\d{3}$/.test(texto)) texto = texto.replace(/\./g, '');
+  var n = parseFloat(texto); return isNaN(n) ? null : n;
+}
+function previa() {
+  var p = document.getElementById('previa');
+  var monto = numero(document.getElementById('monto').value);
+  var campo = document.getElementById('cotizacion');
+  var cot = numero(campo.value) || parseFloat(campo.dataset.ccl);
+  var ver = monedaElegida() === 'USD' && monto && cot;
+  p.classList.toggle('hidden', !ver);
+  if (ver) p.textContent = '≈ $ ' + Math.round(monto * cot).toLocaleString('es-AR') + ' de referencia (CCL $ ' + cot.toLocaleString('es-AR') + ')';
 }
 cambiarMedio();
 </script>

@@ -13,6 +13,16 @@ La identidad visual sigue el brandbook de Marquito v1.0.
 - Archivos: `usuarios.db` (cuentas, contraseñas cifradas), `gastos.db` (administrador), `datos/u<id>.db` (el resto).
   Ninguno se sube a GitHub (ver `.gitignore`).
 
+## Dólares
+
+- Las tarjetas pueden ser en pesos, en dólares o de las dos monedas; los gastos, en pesos o en USD.
+- Un gasto en USD se convierte a pesos con el **CCL del día del gasto** (dólar de referencia) y ese valor nunca cambia.
+- **Pagar un resumen no es un gasto**: se registra la fecha, la parte en pesos y la parte en dólares
+  (comprados al banco o convertidos en pesos), y la app guarda el costo real y la diferencia contra el CCL.
+- El CCL se actualiza solo (`cotizacion.py`): dolarapi.com para el de hoy, api.argentinadatos.com para el histórico.
+  Ambos sitios están permitidos en el plan gratis de PythonAnywhere. Si no hay datos, se usa el último conocido,
+  y el administrador puede cargarlo a mano en Mi cuenta. Las cotizaciones se guardan en `cotizaciones.db`.
+
 ## Correrla en tu computadora
 
     pip install -r requirements.txt
@@ -37,6 +47,7 @@ Abre http://localhost:5000. La primera vez te pide crear tu usuario; la "contras
 - `db.py`: base de datos SQLite (`gastos.db`); crea y actualiza las tablas solas.
 - `logica.py`: constantes y cálculos (cuotas por resumen, proyección mensual).
 - `cuentas.py`: usuarios, contraseñas y bloqueo por intentos.
+- `cotizacion.py`: el CCL automático y manual.
 - `templates/`: las páginas HTML. `base.html` es el marco común (colores, tipografías, menú); `_iconos.html` tiene los íconos.
 - `static/`: logos, favicon e íconos para agregar la app a la pantalla de inicio del celular.
 

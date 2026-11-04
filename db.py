@@ -101,6 +101,20 @@ TABLAS = [
            clave TEXT PRIMARY KEY,
            valor TEXT
        )""",
+    # Registro de cada pago de un resumen de tarjeta: cuánto, en qué moneda y cuánto costó de verdad
+    """CREATE TABLE IF NOT EXISTS pagos_tarjeta (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           tarjeta_id INTEGER NOT NULL,
+           periodo TEXT NOT NULL,          -- AAAA-MM del cierre (como resumenes_pagados)
+           fecha TEXT NOT NULL,            -- día en que pagaste
+           pesos REAL NOT NULL DEFAULT 0,  -- parte en pesos
+           usd REAL NOT NULL DEFAULT 0,    -- parte en dólares
+           metodo_usd TEXT,                -- 'compra' (dólares comprados) o 'pesos' (te lo convirtió el banco)
+           precio_usd REAL,                -- a cuánto te salió cada dólar
+           costo_usd REAL,                 -- la parte en dólares, en pesos reales
+           usd_ref REAL,                   -- la parte en dólares, en pesos al CCL de cada gasto
+           UNIQUE (tarjeta_id, periodo)
+       )""",
 ]
 
 # Columnas que se fueron agregando a las tablas después de crearlas
@@ -108,9 +122,12 @@ COLUMNAS = {
     "gastos": [
         "medio TEXT", "tarjeta_id INTEGER", "banco_id INTEGER",
         "cuotas INTEGER DEFAULT 1", "con_interes INTEGER DEFAULT 0", "total_con_interes REAL",
+        # Gastos en dólares: 'monto' sigue siendo en pesos (USD × CCL del día), así todos los totales siguen igual
+        "moneda TEXT DEFAULT 'ARS'", "monto_usd REAL", "cotizacion REAL",
     ],
     "fijos": ["cancelado_en TEXT", "activo_hasta TEXT"],
-    "tarjetas": ["modalidad TEXT DEFAULT 'credito'", "dia_cierre INTEGER", "dia_vencimiento INTEGER", "limite REAL"],
+    "tarjetas": ["modalidad TEXT DEFAULT 'credito'", "dia_cierre INTEGER", "dia_vencimiento INTEGER", "limite REAL",
+                 "moneda TEXT DEFAULT 'ARS'"],  # ARS, USD o AMBAS
 }
 
 

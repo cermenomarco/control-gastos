@@ -7,6 +7,7 @@ CATEGORIAS = ["comida", "transporte", "ocio", "hogar", "salud", "otros"]
 TIPOS_TARJETA = ["Visa", "Mastercard", "American Express"]
 MEDIOS = {"tarjeta": "Tarjeta", "transferencia": "Transferencia", "efectivo": "Efectivo"}
 MODALIDADES = {"credito": "Crédito", "debito": "Débito"}
+MONEDAS_TARJETA = {"ARS": "Pesos", "USD": "Dólares", "AMBAS": "Pesos y dólares"}
 TIPOS_FIJO = {"suscripcion": "Suscripción", "servicio": "Servicio", "impuesto": "Impuesto",
               "alquiler": "Alquiler", "otro": "Otro"}
 ROLES = {"acreedor": "Me deben", "deudor": "Debo"}
@@ -24,6 +25,11 @@ ERRORES = {
     "banco": "Ese banco ya está cargado o el nombre está vacío.",
     "usado": "No se puede borrar: tiene gastos, tarjetas o gastos fijos asociados.",
     "presupuesto": "El presupuesto tiene que ser un monto mayor a 0.",
+    "moneda": "Esa tarjeta no admite esa moneda.",
+    "tarjeta_repetida": "Ya tenés otra tarjeta con ese tipo y esos 4 dígitos.",
+    "sin_ccl": "Todavía no hay cotización del CCL para convertir: cargala a mano en Mi cuenta o poné la cotización en el gasto.",
+    "pago": "Revisá el pago: fecha, montos mayores o iguales a 0 y, si hay dólares, cómo los pagaste y a qué precio.",
+    "ccl": "La cotización tiene que ser un número mayor a 0.",
 }
 
 
@@ -81,35 +87,46 @@ def fecha_dia(anio, mes, dia):
     return date(anio, mes, min(dia, monthrange(anio, mes)[1]))
 
 
-def resumenes_tarjetas(compras, nombres, pagados, hoy):
+def resumenes_tarjetas(compras, nombres, pagados, hoy, ccl_hoy=None):
     """Reparte las cuotas de cada compra en el resumen (cierre) que le toca.
     Una compra hasta el día de cierre entra a ese resumen; después, al siguiente.
     El vencimiento es la primera fecha con el día de vencimiento posterior al cierre.
-    pagados: conjunto de (tarjeta_id, "AAAA-MM del cierre") ya marcados como pagados.
+    Cada resumen tiene dos saldos, como el del banco: en pesos y en dólares.
+    compras: (tarjeta_id, fecha, monto en pesos, cuotas, con_interes, total, cierre, vencimiento, moneda, monto_usd).
+    pagados: conjunto de (tarjeta_id, "AAAA-MM del cierre") ya pagados.
+    a_pagar: estimación en pesos (los dólares, al CCL de hoy si se conoce).
     Devuelve, ordenados por vencimiento, los resúmenes que aún no vencieron (lista de dicts)."""
     acumulado = {}
-    for tid, fecha, monto, cuotas, con_interes, total, cierre, venc in compras:
+    for tid, fecha, monto, cuotas, con_interes, total, cierre, venc, moneda, monto_usd in compras:
         f = date.fromisoformat(fecha)
         anio, mes = f.year, f.month
         if f > fecha_dia(anio, mes, cierre):
             anio, mes = sumar_meses(anio, mes, 1)
-        cuotas = cuotas or 1
-        a_pagar = total if con_interes and total else monto
+        en_usd = moneda == "USD" and monto_usd
+        cuotas = 1 if en_usd else (cuotas or 1)
+        a_pagar = total if con_interes and total and not en_usd else monto
         for k in range(cuotas):
             a, m = sumar_meses(anio, mes, k)
-            celda = acumulado.setdefault((tid, a, m), [0.0, 0.0, cierre, venc])
-            celda[0] += a_pagar / cuotas
-            celda[1] += (a_pagar - monto) / cuotas
+            c = acumulado.setdefault((tid, a, m), {"pesos": 0.0, "intereses": 0.0, "usd": 0.0, "usd_ref": 0.0,
+                                                   "cierre": cierre, "venc": venc})
+            if en_usd:
+                c["usd"] += monto_usd
+                c["usd_ref"] += monto  # el gasto en pesos al CCL de su día
+            else:
+                c["pesos"] += a_pagar / cuotas
+                c["intereses"] += (a_pagar - monto) / cuotas
     filas = []
-    for (tid, a, m), (pagar, intereses, cierre, venc) in acumulado.items():
-        cierra = fecha_dia(a, m, cierre)
-        va, vm = (a, m) if venc > cierre else sumar_meses(a, m, 1)
-        vence = fecha_dia(va, vm, venc)
+    for (tid, a, m), c in acumulado.items():
+        cierra = fecha_dia(a, m, c["cierre"])
+        va, vm = (a, m) if c["venc"] > c["cierre"] else sumar_meses(a, m, 1)
+        vence = fecha_dia(va, vm, c["venc"])
         if vence >= hoy:
             periodo = f"{a:04d}-{m:02d}"
+            usd_estimado = c["usd"] * ccl_hoy if ccl_hoy else c["usd_ref"]
             filas.append({
                 "tarjeta_id": tid, "tarjeta": nombres.get(tid, "—"), "periodo": periodo,
-                "cierra": cierra, "vence": vence, "a_pagar": pagar, "intereses": intereses,
+                "cierra": cierra, "vence": vence, "pesos": c["pesos"], "usd": c["usd"], "usd_ref": c["usd_ref"],
+                "a_pagar": c["pesos"] + usd_estimado, "intereses": c["intereses"],
                 "pagado": (tid, periodo) in pagados,
             })
     filas.sort(key=lambda f: (f["vence"], f["tarjeta"]))
@@ -248,7 +265,7 @@ def gajos(total, presupuesto):
             "queda": max(queda, 0), "excedido": max(-queda, 0)}
 
 
-def eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_dia, objetivos):
+def eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_dia, objetivos, pagos=()):
     """Todo lo que pasa cada día entre `desde` y `hasta` (inclusive), para el calendario.
     fijos: dicts de gastos fijos (con montos, dia, frecuencia, mes_inicio, hasta).
     resumenes: dicts de resumenes_tarjetas (con 'corto', el nombre breve de la tarjeta).
@@ -283,6 +300,10 @@ def eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_d
         sumar(r["vence"], tipo="resumen", titulo=f"Vence {r['corto']}", monto=r["a_pagar"],
               estado="pagado" if r["pagado"] else ("vencido" if r["vence"] < hoy else ""), url="/tarjetas")
 
+    # Pagos de resúmenes, el día en que pagaste (pagos: (fecha, tarjeta, total en pesos reales))
+    for fecha, tarjeta, total in pagos:
+        sumar(fecha, tipo="pago", titulo=f"Pagaste {tarjeta}", monto=total, url="/tarjetas")
+
     # Préstamos: cuotas que pago y cuotas que cobro
     for rol, persona, vence, monto, pagada in cuotas:
         deudor = rol == "deudor"
@@ -302,7 +323,7 @@ def eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_d
             sumar(o["fecha_meta"], tipo="meta", titulo=f"Meta: {o['nombre']}", monto=o["falta"],
                   estado="falta", url="/objetivos")
 
-    orden = {"resumen": 0, "debo": 1, "fijo": 2, "cobro": 3, "gasto": 4, "cierre": 5, "fin": 6, "meta": 7}
+    orden = {"resumen": 0, "pago": 1, "debo": 2, "fijo": 3, "cobro": 4, "gasto": 5, "cierre": 6, "fin": 7, "meta": 8}
     for lista in dias.values():
         lista.sort(key=lambda e: (orden[e["tipo"]], e["titulo"]))
     return dias

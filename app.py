@@ -7,11 +7,19 @@ Archivos:   app.py (rutas) · db.py (base de datos) · logica.py (cálculos y co
 import hmac
 import os
 import secrets
+import time
+
+# Hora de Argentina: los servidores (PythonAnywhere incluido) usan UTC, y después de las 21 h
+# la app creía que ya era el día siguiente.
+os.environ["TZ"] = os.environ.get("MARQUITO_TZ", "America/Argentina/Buenos_Aires")
+if hasattr(time, "tzset"):
+    time.tzset()
 from datetime import date, timedelta
 
 from markupsafe import Markup
 from flask import Flask, abort, g, redirect, render_template, request, session, url_for
 
+import cotizacion
 import cuentas
 from db import conectar
 from logica import (
@@ -21,6 +29,7 @@ from logica import (
     MESES,
     MEDIOS,
     MODALIDADES,
+    MONEDAS_TARJETA,
     ROLES,
     TIPOS_FIJO,
     TIPOS_TARJETA,
@@ -47,6 +56,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 app.permanent_session_lifetime = timedelta(days=30)  # no pide clave todos los días
 app.config.update(SESSION_COOKIE_SAMESITE="Lax")
+app.jinja_env.globals["zip"] = zip
 
 
 @app.template_filter("peso")
@@ -57,6 +67,18 @@ def peso(valor):
     formato = ",.0f" if valor == int(valor) else ",.2f"
     texto = f"{valor:{formato}}".replace(",", "X").replace(".", ",").replace("X", ".")
     return "$ " + texto
+
+
+@app.template_filter("numero")
+def numero_filtro(valor):
+    # Para precargar campos: 35000 -> "35.000" · 1480 -> "1.480" · 10.5 -> "10,50" (la app los lee igual)
+    return peso(valor)[2:]
+
+
+@app.template_filter("usd")
+def usd(valor):
+    # 10 -> US$ 10 · 10.5 -> US$ 10,50
+    return "US" + peso(valor)
 
 
 @app.template_filter("corto")
@@ -246,7 +268,8 @@ def mi_cuenta():
                 return redirect(url_for("inicio"))
             g.usuario = cuentas.por_id(g.usuario["id"])
             ok = "Listo, cambiaste tu contraseña. Se cerró la sesión en tus otros dispositivos."
-    return render_template("cuenta.html", error=error, ok=ok)
+    error = error or ERRORES.get(request.args.get("error"))
+    return render_template("cuenta.html", error=error, ok=ok, ccl=cotizacion.ccl_de(date.today()), hoy=date.today().isoformat())
 
 
 def solo_admin():
@@ -286,7 +309,8 @@ def borrar_usuario(uid):
     return redirect(url_for("ver_usuarios"))
 
 
-def armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo, filas_prestamos, objetivos):
+def armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo, filas_prestamos, objetivos,
+                     pagos=(), ccl_hoy=None):
     """Datos de la pestaña Calendario: vista mes o semana, anclada en ?fecha=, con el día elegido en ?dia=."""
     hoy = date.today()
     modo = "semana" if request.args.get("vista") == "semana" else "mes"
@@ -317,7 +341,7 @@ def armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo,
         elegido = hoy if desde <= hoy <= hasta and en_rango(hoy) else (ancla.replace(day=1) if modo == "mes" else desde)
 
     cortos = {t["id"]: f"{t['tipo']} ••{t['ultimos4']}" for t in tarjetas_det}
-    resumenes = resumenes_tarjetas(compras, cortos, pagados, desde)
+    resumenes = resumenes_tarjetas(compras, cortos, pagados, desde, ccl_hoy)
     for r in resumenes:
         r["corto"] = r["tarjeta"]
     personas = {pid: (rol, persona) for pid, persona, rol, *_ in filas_prestamos}
@@ -330,7 +354,8 @@ def armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo,
             (desde.isoformat(), hasta.isoformat()))
     }
     con.close()
-    eventos = eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_dia, objetivos)
+    con_fecha = [(date.fromisoformat(p["fecha"]), p["tarjeta"], p["total"]) for p in pagos if p["fecha"]]
+    eventos = eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_dia, objetivos, con_fecha)
 
     dias = []
     d = desde
@@ -346,6 +371,9 @@ def armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo,
 
 
 def renderizar(vista):
+    cotizacion.actualizar()  # trae el CCL si hace falta (como mucho una consulta por hora)
+    ccl = cotizacion.ccl_de(date.today())
+    ccl_hoy = ccl["valor"] if ccl else None
     con = conectar()
     mes = date.today().strftime("%Y-%m")
     total, cantidad = con.execute(
@@ -384,9 +412,9 @@ def renderizar(vista):
             params.append(filtros["banco"])
     donde = "WHERE " + " AND ".join(clausulas) if clausulas else ""
     filas = [
-        (id_, fecha, monto, cat, desc, texto_medio(*resto))
-        for id_, fecha, monto, cat, desc, *resto in con.execute(
-            """SELECT g.id, g.fecha, g.monto, g.categoria, g.descripcion,
+        (id_, fecha, monto, cat, desc, texto_medio(*resto), moneda or "ARS", usd, cot)
+        for id_, fecha, monto, cat, desc, moneda, usd, cot, *resto in con.execute(
+            """SELECT g.id, g.fecha, g.monto, g.categoria, g.descripcion, g.moneda, g.monto_usd, g.cotizacion,
                       g.medio, t.tipo, t.ultimos4, bt.nombre, bg.nombre,
                       t.modalidad, g.cuotas, g.con_interes
                FROM gastos g
@@ -399,8 +427,9 @@ def renderizar(vista):
     ]
     total_filtrado = sum(f[2] for f in filas)
     tarjetas, sin_fechas, limites, tarjetas_det = [], [], [], []
-    for tid, tipo, ultimos4, banco, modalidad, cierre, venc, limite in con.execute(
-        """SELECT t.id, t.tipo, t.ultimos4, b.nombre, t.modalidad, t.dia_cierre, t.dia_vencimiento, t.limite
+    for tid, tipo, ultimos4, banco, modalidad, cierre, venc, limite, moneda_t, banco_id in con.execute(
+        """SELECT t.id, t.tipo, t.ultimos4, b.nombre, t.modalidad, t.dia_cierre, t.dia_vencimiento, t.limite,
+                  COALESCE(t.moneda, 'ARS'), t.banco_id
            FROM tarjetas t LEFT JOIN bancos b ON b.id = t.banco_id ORDER BY t.id"""
     ):
         etiqueta = etiqueta_tarjeta(tipo, ultimos4, banco, modalidad)
@@ -415,7 +444,8 @@ def renderizar(vista):
             limites.append((tid, etiqueta, limite))
         tarjetas.append((tid, etiqueta, modalidad, info))
         tarjetas_det.append({"id": tid, "tipo": tipo, "ultimos4": ultimos4, "banco": banco, "modalidad": modalidad,
-                             "cierre": cierre, "vence": venc, "limite": limite, "etiqueta": etiqueta})
+                             "cierre": cierre, "vence": venc, "limite": limite, "etiqueta": etiqueta,
+                             "moneda": moneda_t, "banco_id": banco_id})
     bancos = con.execute("SELECT id, nombre FROM bancos ORDER BY nombre").fetchall()
     fila = con.execute(
         """SELECT t.tipo, t.ultimos4, SUM(g.monto) FROM gastos g
@@ -436,7 +466,7 @@ def renderizar(vista):
     ).fetchone()
     compras = con.execute(
         """SELECT g.tarjeta_id, g.fecha, g.monto, g.cuotas, g.con_interes, g.total_con_interes,
-                  t.dia_cierre, t.dia_vencimiento
+                  t.dia_cierre, t.dia_vencimiento, COALESCE(g.moneda, 'ARS'), g.monto_usd
            FROM gastos g JOIN tarjetas t ON t.id = g.tarjeta_id
            WHERE g.medio = 'tarjeta' AND t.modalidad = 'credito'
              AND t.dia_cierre IS NOT NULL AND t.dia_vencimiento IS NOT NULL"""
@@ -453,6 +483,20 @@ def renderizar(vista):
            ORDER BY f.dia_cobro, f.nombre"""
     ).fetchall()
     pagados = set(con.execute("SELECT tarjeta_id, periodo FROM resumenes_pagados").fetchall())
+    # Historial de pagos de tarjeta (los resúmenes pagados antes de esta versión no tienen detalle)
+    pagos = [dict(zip(("tarjeta_id", "periodo", "fecha", "pesos", "usd", "metodo", "precio", "costo_usd", "usd_ref"), f))
+             for f in con.execute(
+                 """SELECT r.tarjeta_id, r.periodo, p.fecha, p.pesos, p.usd, p.metodo_usd, p.precio_usd,
+                           p.costo_usd, p.usd_ref
+                    FROM resumenes_pagados r
+                    LEFT JOIN pagos_tarjeta p ON p.tarjeta_id = r.tarjeta_id AND p.periodo = r.periodo
+                    ORDER BY COALESCE(p.fecha, r.periodo) DESC""")]
+    ultimo_precio = con.execute(
+        "SELECT precio_usd FROM pagos_tarjeta WHERE precio_usd IS NOT NULL ORDER BY fecha DESC, id DESC LIMIT 1"
+    ).fetchone()
+    usd_mes = con.execute(
+        "SELECT COALESCE(SUM(monto_usd), 0) FROM gastos WHERE moneda = 'USD' AND fecha LIKE ?", (mes + "%",)
+    ).fetchone()[0]
     cuotas_por_prestamo = {}
     for pid, numero, vence, monto, pagada in con.execute(
         "SELECT prestamo_id, numero, vence, monto, pagada FROM prestamo_cuotas ORDER BY prestamo_id, numero"
@@ -472,7 +516,12 @@ def renderizar(vista):
         "SELECT id, persona, rol, monto, total, fecha, cuotas, descripcion FROM prestamos ORDER BY fecha DESC, id DESC"
     ).fetchall()
     con.close()
-    proximos = resumenes_tarjetas(compras, {t[0]: t[1] for t in tarjetas}, pagados, date.today())
+    proximos = resumenes_tarjetas(compras, {t[0]: t[1] for t in tarjetas}, pagados, date.today(), ccl_hoy)
+    cortos = {t["id"]: f"{t['tipo']} ••{t['ultimos4']}" for t in tarjetas_det}
+    for pago in pagos:
+        pago["tarjeta"] = cortos.get(pago["tarjeta_id"], "Tarjeta borrada")
+        pago["total"] = (pago["pesos"] or 0) + (pago["costo_usd"] or 0)
+        pago["diferencia"] = (pago["costo_usd"] - pago["usd_ref"]) if pago["costo_usd"] and pago["usd_ref"] else None
     uso_credito = uso_limites(limites, proximos)
     hoy_ = date.today()
     mes_actual = periodo_de(hoy_.year, hoy_.month)
@@ -535,7 +584,8 @@ def renderizar(vista):
     cats = sorted({f[3] for f in filas} | set(CATEGORIAS))
     cal = None
     if vista == "calendario":
-        cal = armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo, filas_prestamos, objetivos)
+        cal = armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo, filas_prestamos, objetivos,
+                               pagos, ccl_hoy)
     return render_template(
         f"{vista}.html", mes=mes, total=total, cantidad=cantidad, por_cat=por_cat, medidor_mes=medidor_mes,
         mes_nombre=MESES[date.today().month - 1],
@@ -547,6 +597,8 @@ def renderizar(vista):
         fijos=fijos, total_mensual=total_mensual, este_mes=este_mes, mes_actual=mes_actual,
         tipos_fijo=TIPOS_FIJO, frecuencias=FRECUENCIAS, proyeccion=proyeccion_meses,
         objetivos=objetivos, prestamos=prestamos, saldo_rol=saldo_rol, vencidas=vencidas, roles=ROLES, cal=cal,
+        ccl=ccl, usd_mes=usd_mes, pagos=pagos, monedas_tarjeta=MONEDAS_TARJETA,
+        precio_sugerido=(ultimo_precio[0] if ultimo_precio else ccl_hoy),
         error=ERRORES.get(request.args.get("error")),
     )
 
@@ -603,7 +655,7 @@ def agregar():
         monto = a_monto(form["monto"])
         if monto <= 0:
             raise ValueError
-        date.fromisoformat(form["fecha"])
+        fecha_gasto = date.fromisoformat(form["fecha"])
     except (ValueError, KeyError):
         return redirect(url_for("inicio", error="datos"))
     medio = form.get("medio")
@@ -614,10 +666,33 @@ def agregar():
     banco_id = a_int(form.get("banco_id")) if medio == "transferencia" else None
     con = conectar()
     cuotas, con_interes, total = 1, 0, None
-    credito = tarjeta_id and con.execute(
+    # Moneda: la tarjeta manda (solo pesos o solo dólares); si admite las dos o no es tarjeta, elegís vos
+    moneda = "USD" if form.get("moneda") == "USD" else "ARS"
+    if tarjeta_id:
+        fila = con.execute("SELECT COALESCE(moneda, 'ARS') FROM tarjetas WHERE id = ?", (tarjeta_id,)).fetchone()
+        if fila and fila[0] in ("ARS", "USD"):
+            moneda = fila[0]
+    monto_usd = cotizacion_usada = None
+    if moneda == "USD":
+        monto_usd = monto
+        try:  # cotización: la que escribiste o, si la dejaste vacía, el CCL de la fecha del gasto
+            cotizacion_usada = a_monto(form["cotizacion"]) if form.get("cotizacion", "").strip() else None
+        except ValueError:
+            cotizacion_usada = 0
+        if cotizacion_usada is None:
+            dato = cotizacion.ccl_de(fecha_gasto)
+            if not dato:  # todavía no se buscó nunca: buscarla ahora
+                cotizacion.actualizar()
+                dato = cotizacion.ccl_de(fecha_gasto)
+            cotizacion_usada = dato["valor"] if dato else None
+        if not cotizacion_usada or cotizacion_usada <= 0:
+            con.close()
+            return redirect(url_for("inicio", error="sin_ccl" if cotizacion_usada is None else "ccl"))
+        monto = round(monto_usd * cotizacion_usada, 2)  # el gasto en pesos de referencia
+    credito = tarjeta_id and moneda == "ARS" and con.execute(
         "SELECT 1 FROM tarjetas WHERE id = ? AND modalidad = 'credito'", (tarjeta_id,)
     ).fetchone()
-    if credito:  # cuotas e interés solo existen en tarjetas de crédito
+    if credito:  # cuotas e interés solo en pesos (los consumos en dólares van en un pago)
         cuotas = a_int(form.get("cuotas")) or 1
         if not 1 <= cuotas <= 60:
             con.close()
@@ -635,10 +710,10 @@ def agregar():
     descripcion = form.get("descripcion", "").strip()
     con.execute(
         """INSERT INTO gastos (fecha, monto, categoria, descripcion, medio, tarjeta_id, banco_id,
-                               cuotas, con_interes, total_con_interes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                               cuotas, con_interes, total_con_interes, moneda, monto_usd, cotizacion)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (form["fecha"], monto, categoria, descripcion, medio, tarjeta_id, banco_id,
-         cuotas, con_interes, total),
+         cuotas, con_interes, total, moneda, monto_usd, cotizacion_usada),
     )
     con.commit()
     con.close()
@@ -654,12 +729,12 @@ def eliminar(id_):
     return redirect(url_for("ver_gastos", **{k: request.args.get(k) for k in ("mes", "dia", "tarjeta_id", "banco_id")}))
 
 
-@app.post("/tarjetas")
-def agregar_tarjeta():
-    form = request.form
+def leer_tarjeta(form):
+    """Valida el formulario de tarjeta (sirve para agregar y para editar). Devuelve un dict o None."""
     tipo = form.get("tipo")
     ultimos4 = form.get("ultimos4", "").strip()
     modalidad = form.get("modalidad")
+    moneda = form.get("moneda") if form.get("moneda") in MONEDAS_TARJETA else "ARS"
     cierre, venc = a_int(form.get("dia_cierre")), a_int(form.get("dia_vencimiento"))
     limite = None
     if modalidad == "debito":
@@ -677,22 +752,48 @@ def agregar_tarjeta():
         and (limite is None or limite > 0)
     )
     if not valida:
+        return None
+    return {"tipo": tipo, "ultimos4": ultimos4, "modalidad": modalidad, "dia_cierre": cierre,
+            "dia_vencimiento": venc, "banco_id": a_int(form.get("banco_id")), "limite": limite, "moneda": moneda}
+
+
+COLUMNAS_TARJETA = ("tipo", "ultimos4", "modalidad", "dia_cierre", "dia_vencimiento", "banco_id", "limite", "moneda")
+
+
+@app.post("/tarjetas")
+def agregar_tarjeta():
+    datos = leer_tarjeta(request.form)
+    if not datos:
         return redirect(url_for("ver_tarjetas", error="tarjeta"))
     con = conectar()
-    datos = (modalidad, cierre, venc, a_int(form.get("banco_id")), limite)
     existente = con.execute(
-        "SELECT id FROM tarjetas WHERE tipo = ? AND ultimos4 = ?", (tipo, ultimos4)
+        "SELECT id FROM tarjetas WHERE tipo = ? AND ultimos4 = ?", (datos["tipo"], datos["ultimos4"])
     ).fetchone()
-    if existente:  # misma tarjeta (tipo + 4 dígitos): se actualizan sus datos
-        con.execute(
-            "UPDATE tarjetas SET modalidad = ?, dia_cierre = ?, dia_vencimiento = ?, banco_id = ?, limite = ? WHERE id = ?",
-            datos + (existente[0],),
-        )
+    if existente:  # ya estaba cargada: se actualiza en vez de duplicarla
+        con.execute(f"UPDATE tarjetas SET {', '.join(c + ' = ?' for c in COLUMNAS_TARJETA)} WHERE id = ?",
+                    tuple(datos[c] for c in COLUMNAS_TARJETA) + (existente[0],))
     else:
-        con.execute(
-            "INSERT INTO tarjetas (tipo, ultimos4, modalidad, dia_cierre, dia_vencimiento, banco_id, limite) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (tipo, ultimos4) + datos,
-        )
+        con.execute(f"INSERT INTO tarjetas ({', '.join(COLUMNAS_TARJETA)}) VALUES ({', '.join('?' * len(COLUMNAS_TARJETA))})",
+                    tuple(datos[c] for c in COLUMNAS_TARJETA))
+    con.commit()
+    con.close()
+    return redirect(url_for("ver_tarjetas"))
+
+
+@app.post("/tarjetas/<int:id_>/editar")
+def editar_tarjeta(id_):
+    """Edita una tarjeta en el lugar: sus gastos, resúmenes y pagos siguen asociados."""
+    datos = leer_tarjeta(request.form)
+    if not datos:
+        return redirect(url_for("ver_tarjetas", error="tarjeta", editar=id_))
+    con = conectar()
+    otra = con.execute("SELECT 1 FROM tarjetas WHERE tipo = ? AND ultimos4 = ? AND id != ?",
+                       (datos["tipo"], datos["ultimos4"], id_)).fetchone()
+    if otra:
+        con.close()
+        return redirect(url_for("ver_tarjetas", error="tarjeta_repetida", editar=id_))
+    con.execute(f"UPDATE tarjetas SET {', '.join(c + ' = ?' for c in COLUMNAS_TARJETA)} WHERE id = ?",
+                tuple(datos[c] for c in COLUMNAS_TARJETA) + (id_,))
     con.commit()
     con.close()
     return redirect(url_for("ver_tarjetas"))
@@ -711,6 +812,7 @@ def eliminar_tarjeta(id_):
         return redirect(url_for("ver_tarjetas", error="usado"))
     con.execute("DELETE FROM tarjetas WHERE id = ?", (id_,))
     con.execute("DELETE FROM resumenes_pagados WHERE tarjeta_id = ?", (id_,))
+    con.execute("DELETE FROM pagos_tarjeta WHERE tarjeta_id = ?", (id_,))
     con.commit()
     con.close()
     return redirect(url_for("ver_tarjetas"))
@@ -718,19 +820,78 @@ def eliminar_tarjeta(id_):
 
 @app.post("/tarjetas/<int:id_>/resumen/<periodo>")
 def marcar_resumen(id_, periodo):
-    """Marca un resumen como pagado (libera el límite y lo saca de la proyección). Si ya lo estaba, lo desmarca."""
+    """Registra el pago de un resumen: fecha, parte en pesos y parte en dólares (con cómo la pagaste).
+    Pagar la tarjeta NO es un gasto: el gasto ya se contó al comprar. Esto solo salda la deuda
+    y guarda cuánto te costaron de verdad los dólares. Con accion=deshacer vuelve a pendiente."""
     try:
         date.fromisoformat(periodo + "-01")
     except ValueError:
         return redirect(url_for("ver_tarjetas"))
+    form = request.form
     con = conectar()
-    if con.execute("SELECT 1 FROM resumenes_pagados WHERE tarjeta_id = ? AND periodo = ?", (id_, periodo)).fetchone():
+    if form.get("accion") == "deshacer":
         con.execute("DELETE FROM resumenes_pagados WHERE tarjeta_id = ? AND periodo = ?", (id_, periodo))
-    else:
-        con.execute("INSERT INTO resumenes_pagados (tarjeta_id, periodo) VALUES (?, ?)", (id_, periodo))
+        con.execute("DELETE FROM pagos_tarjeta WHERE tarjeta_id = ? AND periodo = ?", (id_, periodo))
+        con.commit()
+        con.close()
+        return redirect(url_for("ver_tarjetas"))
+    try:
+        fecha = date.fromisoformat(form.get("fecha", ""))
+        pesos = a_monto(form["pesos"]) if form.get("pesos", "").strip() else 0.0
+        usd = a_monto(form["usd"]) if form.get("usd", "").strip() else 0.0
+        usd_ref = float(form.get("usd_ref") or 0)
+        metodo = precio = costo = None
+        if usd > 0:
+            metodo = form.get("metodo_usd")
+            if metodo == "compra":
+                precio = a_monto(form.get("precio_usd", ""))
+                costo = round(usd * precio, 2)
+            elif metodo == "pesos":
+                costo = a_monto(form.get("pesos_usd", ""))
+                precio = round(costo / usd, 2)
+            else:
+                raise ValueError
+            if precio <= 0 or costo <= 0:
+                raise ValueError
+        if pesos < 0 or usd < 0:
+            raise ValueError
+    except (ValueError, KeyError, ZeroDivisionError):
+        con.close()
+        return redirect(url_for("ver_tarjetas", error="pago"))
+    con.execute("INSERT OR IGNORE INTO resumenes_pagados (tarjeta_id, periodo) VALUES (?, ?)", (id_, periodo))
+    con.execute(
+        """INSERT OR REPLACE INTO pagos_tarjeta
+               (tarjeta_id, periodo, fecha, pesos, usd, metodo_usd, precio_usd, costo_usd, usd_ref)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (id_, periodo, fecha.isoformat(), pesos, usd, metodo, precio, costo, usd_ref or None),
+    )
     con.commit()
     con.close()
     return redirect(url_for("ver_tarjetas"))
+
+
+@app.post("/cotizacion")
+def guardar_cotizacion():
+    """Carga a mano el CCL de un día (solo el administrador: la cotización es de todos)."""
+    solo_admin()
+    try:
+        fecha = date.fromisoformat(request.form.get("fecha", ""))
+        valor = a_monto(request.form.get("valor", ""))
+        if valor <= 0:
+            raise ValueError
+    except ValueError:
+        return redirect(url_for("mi_cuenta", error="ccl"))
+    cotizacion.cargar_manual(fecha, valor)
+    return redirect(url_for("mi_cuenta"))
+
+
+@app.post("/cotizacion/automatica")
+def cotizacion_automatica():
+    """Saca la cotización manual de hoy y vuelve a pedirla a las APIs."""
+    solo_admin()
+    cotizacion.borrar_manual(date.today())
+    cotizacion.actualizar()
+    return redirect(url_for("mi_cuenta"))
 
 
 @app.post("/bancos")
