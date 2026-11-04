@@ -36,7 +36,10 @@ from logica import (
     a_int,
     a_monto,
     cobra_en,
+    cobros_fijo,
+    cobros_pendientes,
     cuotas_prestamo,
+    en_pesos,
     eventos_calendario,
     etiqueta_tarjeta,
     fecha_dia,
@@ -310,7 +313,7 @@ def borrar_usuario(uid):
 
 
 def armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo, filas_prestamos, objetivos,
-                     pagos=(), ccl_hoy=None):
+                     pagos=(), ccl_hoy=None, registrados=None):
     """Datos de la pestaña Calendario: vista mes o semana, anclada en ?fecha=, con el día elegido en ?dia=."""
     hoy = date.today()
     modo = "semana" if request.args.get("vista") == "semana" else "mes"
@@ -355,7 +358,8 @@ def armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo,
     }
     con.close()
     con_fecha = [(date.fromisoformat(p["fecha"]), p["tarjeta"], p["total"]) for p in pagos if p["fecha"]]
-    eventos = eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_dia, objetivos, con_fecha)
+    eventos = eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_dia, objetivos, con_fecha,
+                                 registrados, ccl_hoy)
 
     dias = []
     d = desde
@@ -476,13 +480,16 @@ def renderizar(vista):
         montos.setdefault(fid, []).append((desde, monto))
     filas_fijos = con.execute(
         """SELECT f.id, f.nombre, f.tipo, f.dia_cobro, f.frecuencia, f.mes_inicio,
-                  t.tipo, t.ultimos4, b.nombre, t.modalidad, f.cancelado_en, f.activo_hasta
+                  t.tipo, t.ultimos4, b.nombre, t.modalidad, f.cancelado_en, f.activo_hasta,
+                  COALESCE(f.moneda, 'ARS'), f.confirmar_desde, f.tarjeta_id, t.dia_cierre, t.dia_vencimiento
            FROM fijos f
            LEFT JOIN tarjetas t ON t.id = f.tarjeta_id
            LEFT JOIN bancos b ON b.id = t.banco_id
            ORDER BY f.dia_cobro, f.nombre"""
     ).fetchall()
     pagados = set(con.execute("SELECT tarjeta_id, periodo FROM resumenes_pagados").fetchall())
+    registrados = {(fid, fecha): estado for fid, fecha, estado in
+                   con.execute("SELECT fijo_id, fecha, estado FROM fijo_cobros")}
     # Historial de pagos de tarjeta (los resúmenes pagados antes de esta versión no tienen detalle)
     pagos = [dict(zip(("tarjeta_id", "periodo", "fecha", "pesos", "usd", "metodo", "precio", "costo_usd", "usd_ref"), f))
              for f in con.execute(
@@ -526,7 +533,8 @@ def renderizar(vista):
     hoy_ = date.today()
     mes_actual = periodo_de(hoy_.year, hoy_.month)
     fijos = []
-    for fid, nombre, tipo_f, dia, frec, inicio, tipo, ultimos4, banco, modalidad, cancelado_en, activo_hasta in filas_fijos:
+    for (fid, nombre, tipo_f, dia, frec, inicio, tipo, ultimos4, banco, modalidad, cancelado_en, activo_hasta,
+         moneda_f, confirmar_desde, tarjeta_f, cierre_t, venc_t) in filas_fijos:
         historial = montos.get(fid, [])
         fijo = {
             "id": fid, "nombre": nombre, "tipo": TIPOS_FIJO.get(tipo_f, tipo_f), "dia": dia,
@@ -537,7 +545,14 @@ def renderizar(vista):
             "cancelado": bool(cancelado_en),
             "cancelado_en": date.fromisoformat(cancelado_en) if cancelado_en else None,
             "hasta": date.fromisoformat(activo_hasta) if activo_hasta else None,
+            "moneda": moneda_f, "tarjeta_id": tarjeta_f,
+            "desde": date.fromisoformat(confirmar_desde) if confirmar_desde else hoy_,
+            # con tarjeta de crédito, lo cobrado se paga cuando vence el resumen
+            "cierre": cierre_t if modalidad == "credito" else None,
+            "venc": venc_t if modalidad == "credito" else None,
         }
+        fijo["cobros"] = sorted(((date.fromisoformat(f), e) for (i, f), e in registrados.items() if i == fid),
+                                reverse=True)[:4]
         fijo["terminado"] = bool(fijo["hasta"] and fijo["hasta"] <= hoy_)
         # Monto actual: el vigente hoy, o el primero si todavía no empezó a cobrarse
         vigente = monto_vigente(historial, mes_actual)
@@ -553,8 +568,15 @@ def renderizar(vista):
                 fijo["proximo"] = fecha_dia(a, m, dia).strftime("%d/%m/%Y")
                 break
         fijos.append(fijo)
-    total_mensual = sum(f["monto"] / f["frecuencia"] for f in fijos if not f["cancelado"])
-    este_mes = sum(monto_vigente(f["montos"], mes_actual) or 0 for f in fijos if cobra_en(f, hoy_.year, hoy_.month))
+    total_mensual = sum(en_pesos(f, f["monto"], ccl_hoy) / f["frecuencia"] for f in fijos if not f["cancelado"])
+    primero, ultimo = hoy_.replace(day=1), fecha_dia(hoy_.year, hoy_.month, 31)
+    este_mes = sum(en_pesos(f, monto, ccl_hoy) for f in fijos for fecha, monto in cobros_fijo(f, primero, ultimo)
+                   if registrados.get((f["id"], fecha.isoformat())) != "fallido")
+    pendientes = cobros_pendientes([f for f in fijos], hoy_, registrados)
+    for pend in pendientes:
+        if pend["fijo"]["moneda"] == "USD":
+            dato = cotizacion.ccl_de(pend["fecha"])
+            pend["ccl"] = dato["valor"] if dato else None
     prestamos = {"acreedor": [], "deudor": []}
     vencidas = 0
     impagas = []
@@ -580,12 +602,12 @@ def renderizar(vista):
                           **resumen_objetivo(items, fecha_meta, hoy_)})
     objetivos.sort(key=lambda o: o["completo"])  # los terminados al final
     saldo_rol = {rol: sum(p["pendiente"] for p in lista) for rol, lista in prestamos.items()}
-    proyeccion_meses = proyeccion(fijos, proximos, hoy_, impagas)
+    proyeccion_meses = proyeccion(fijos, proximos, hoy_, impagas, registrados=registrados, ccl=ccl_hoy)
     cats = sorted({f[3] for f in filas} | set(CATEGORIAS))
     cal = None
     if vista == "calendario":
         cal = armar_calendario(compras, tarjetas_det, pagados, fijos, cuotas_por_prestamo, filas_prestamos, objetivos,
-                               pagos, ccl_hoy)
+                               pagos, ccl_hoy, registrados)
     return render_template(
         f"{vista}.html", mes=mes, total=total, cantidad=cantidad, por_cat=por_cat, medidor_mes=medidor_mes,
         mes_nombre=MESES[date.today().month - 1],
@@ -597,7 +619,7 @@ def renderizar(vista):
         fijos=fijos, total_mensual=total_mensual, este_mes=este_mes, mes_actual=mes_actual,
         tipos_fijo=TIPOS_FIJO, frecuencias=FRECUENCIAS, proyeccion=proyeccion_meses,
         objetivos=objetivos, prestamos=prestamos, saldo_rol=saldo_rol, vencidas=vencidas, roles=ROLES, cal=cal,
-        ccl=ccl, usd_mes=usd_mes, pagos=pagos, monedas_tarjeta=MONEDAS_TARJETA,
+        ccl=ccl, ccl_hoy=ccl_hoy, usd_mes=usd_mes, pagos=pagos, monedas_tarjeta=MONEDAS_TARJETA, pendientes=pendientes,
         precio_sugerido=(ultimo_precio[0] if ultimo_precio else ccl_hoy),
         error=ERRORES.get(request.args.get("error")),
     )
@@ -724,6 +746,7 @@ def agregar():
 def eliminar(id_):
     con = conectar()
     con.execute("DELETE FROM gastos WHERE id = ?", (id_,))
+    con.execute("DELETE FROM fijo_cobros WHERE gasto_id = ?", (id_,))
     con.commit()
     con.close()
     return redirect(url_for("ver_gastos", **{k: request.args.get(k) for k in ("mes", "dia", "tarjeta_id", "banco_id")}))
@@ -734,7 +757,7 @@ def leer_tarjeta(form):
     tipo = form.get("tipo")
     ultimos4 = form.get("ultimos4", "").strip()
     modalidad = form.get("modalidad")
-    moneda = form.get("moneda") if form.get("moneda") in MONEDAS_TARJETA else "ARS"
+    moneda = "AMBAS"  # la moneda se elige en cada gasto
     cierre, venc = a_int(form.get("dia_cierre")), a_int(form.get("dia_vencimiento"))
     limite = None
     if modalidad == "debito":
@@ -949,11 +972,12 @@ def agregar_fijo():
     if (not nombre or tipo not in TIPOS_FIJO or monto <= 0 or not dia or not 1 <= dia <= 31
             or frecuencia not in FRECUENCIAS or not mes_valido(inicio)):
         return redirect(url_for("ver_fijos", error="fijo"))
+    moneda = "USD" if form.get("moneda") == "USD" else "ARS"
     con = conectar()
     cur = con.execute(
-        """INSERT INTO fijos (nombre, tipo, dia_cobro, frecuencia, mes_inicio, tarjeta_id)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (nombre, tipo, dia, frecuencia, inicio, a_int(form.get("tarjeta_id"))),
+        """INSERT INTO fijos (nombre, tipo, dia_cobro, frecuencia, mes_inicio, tarjeta_id, moneda, confirmar_desde)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (nombre, tipo, dia, frecuencia, inicio, a_int(form.get("tarjeta_id")), moneda, hoy.isoformat()),
     )
     con.execute("INSERT INTO fijos_montos (fijo_id, desde, monto) VALUES (?, ?, ?)", (cur.lastrowid, inicio, monto))
     con.commit()
@@ -1003,11 +1027,78 @@ def reactivar_fijo(id_):
     return redirect(url_for("ver_fijos"))
 
 
+CATEGORIA_FIJO = {"suscripcion": "suscripciones", "servicio": "servicios", "impuesto": "impuestos",
+                  "alquiler": "alquiler", "otro": "otros"}
+
+
+@app.post("/fijos/<int:id_>/cobro/<fecha>")
+def confirmar_cobro(id_, fecha):
+    """El día del cobro la app pregunta si se cobró:
+    - cobrado: se registra el gasto (con la tarjeta del gasto fijo, si tiene) y entra a su resumen.
+    - fallido: queda anotado que no se cobró y no se registra ningún gasto.
+    - deshacer: vuelve a quedar para confirmar (y se borra el gasto, si se había registrado)."""
+    form = request.form
+    volver = "inicio" if form.get("volver") == "inicio" else "ver_fijos"
+    try:
+        dia = date.fromisoformat(fecha)
+    except ValueError:
+        return redirect(url_for(volver))
+    con = conectar()
+    accion = form.get("accion")
+    if accion == "deshacer":
+        fila = con.execute("SELECT gasto_id FROM fijo_cobros WHERE fijo_id = ? AND fecha = ?", (id_, fecha)).fetchone()
+        if fila and fila[0]:
+            con.execute("DELETE FROM gastos WHERE id = ?", (fila[0],))
+        con.execute("DELETE FROM fijo_cobros WHERE fijo_id = ? AND fecha = ?", (id_, fecha))
+    elif accion == "fallido":
+        con.execute("INSERT OR REPLACE INTO fijo_cobros (fijo_id, fecha, estado) VALUES (?, ?, 'fallido')", (id_, fecha))
+    elif accion == "cobrado":
+        fijo = con.execute(
+            """SELECT f.nombre, f.tipo, COALESCE(f.moneda, 'ARS'), f.tarjeta_id,
+                      (SELECT monto FROM fijos_montos WHERE fijo_id = f.id AND desde <= ? ORDER BY desde DESC LIMIT 1)
+               FROM fijos f WHERE f.id = ?""", (fecha[:7], id_)).fetchone()
+        if not fijo or con.execute("SELECT 1 FROM fijo_cobros WHERE fijo_id = ? AND fecha = ?", (id_, fecha)).fetchone():
+            con.close()
+            return redirect(url_for(volver))
+        nombre, tipo, moneda, tarjeta_id, vigente = fijo
+        try:  # el monto que vino de verdad (si no lo cambiaste, el vigente)
+            monto = a_monto(form["monto"]) if form.get("monto", "").strip() else vigente
+        except ValueError:
+            monto = 0
+        if not monto or monto <= 0:
+            con.close()
+            return redirect(url_for(volver, error="datos"))
+        monto_usd = cotizacion_usada = None
+        if moneda == "USD":
+            dato = cotizacion.ccl_de(dia)
+            if not dato:
+                cotizacion.actualizar()
+                dato = cotizacion.ccl_de(dia)
+            if not dato:
+                con.close()
+                return redirect(url_for(volver, error="sin_ccl"))
+            monto_usd, cotizacion_usada = monto, dato["valor"]
+            monto = round(monto_usd * cotizacion_usada, 2)
+        cur = con.execute(
+            """INSERT INTO gastos (fecha, monto, categoria, descripcion, medio, tarjeta_id, cuotas, con_interes,
+                                   moneda, monto_usd, cotizacion, fijo_id)
+               VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)""",
+            (fecha, monto, CATEGORIA_FIJO.get(tipo, "otros"), nombre, "tarjeta" if tarjeta_id else "transferencia",
+             tarjeta_id, moneda, monto_usd, cotizacion_usada, id_),
+        )
+        con.execute("INSERT INTO fijo_cobros (fijo_id, fecha, estado, gasto_id) VALUES (?, ?, 'cobrado', ?)",
+                    (id_, fecha, cur.lastrowid))
+    con.commit()
+    con.close()
+    return redirect(url_for(volver))
+
+
 @app.post("/fijos/<int:id_>/eliminar")
 def eliminar_fijo(id_):
     con = conectar()
     con.execute("DELETE FROM fijos WHERE id = ?", (id_,))
     con.execute("DELETE FROM fijos_montos WHERE fijo_id = ?", (id_,))
+    con.execute("DELETE FROM fijo_cobros WHERE fijo_id = ?", (id_,))  # los gastos ya registrados se conservan
     con.commit()
     con.close()
     return redirect(url_for("ver_fijos"))

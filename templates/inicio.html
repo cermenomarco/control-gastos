@@ -7,6 +7,32 @@
     <div class="monto-hero">{{ total|peso }}</div>
   </section>
 
+  {% if pendientes %}
+  <section class="card confirmar" aria-label="Cobros para confirmar">
+    <div class="cabeza"><h2>{{ '¿Se cobró?' if pendientes|length == 1 else '¿Se cobraron?' }}</h2><span class="mini">{{ pendientes|length }} para confirmar</span></div>
+    {% for p in pendientes %}
+    {% set cuando = p.fecha.isoformat()|dia %}
+    <div class="fila">
+      <span class="ico">{{ icono('fijos', 18) }}</span>
+      <div class="cuerpo">
+        <div class="titulo">{{ p.fijo.nombre }}</div>
+        <div class="detalle">{{ 'Se cobra hoy' if cuando == 'Hoy' else 'Se cobraba ayer' if cuando == 'Ayer' else 'Se cobraba el ' ~ cuando }}{% if p.fijo.tarjeta %} · {{ p.fijo.tarjeta }}{% endif %}</div>
+        <form class="acciones" method="post" action="{{ url_for('confirmar_cobro', id_=p.fijo.id, fecha=p.fecha.isoformat()) }}">
+          <input type="hidden" name="volver" value="inicio">
+          <label class="monto-confirmar" title="Si vino otro monto, cambialo antes de confirmar">
+            <span>{{ 'US$' if p.fijo.moneda == 'USD' else '$' }}</span>
+            <input name="monto" inputmode="decimal" value="{{ p.monto|numero }}" aria-label="Monto cobrado de {{ p.fijo.nombre }}">
+          </label>
+          <button class="btn chico" name="accion" value="cobrado">{{ icono('ok', 14) }} Se cobró</button>
+          <button class="btn sec chico" name="accion" value="fallido">No se cobró</button>
+        </form>
+        {% if p.fijo.moneda == 'USD' and p.ccl %}<div class="chico" style="margin-top:4px">≈ {{ (p.monto * p.ccl)|peso }} al CCL de ese día</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
   <section class="medidor" aria-label="Presupuesto del mes">
     {% if medidor_mes %}
       {{ medidor(medidor_mes.gastados, medidor_mes.libres ~ ' gajos libres de 8') }}
@@ -70,7 +96,7 @@
         <label class="campo" id="campo-tarjeta"><span>Tarjeta</span>
           <select name="tarjeta_id" id="sel-tarjeta" onchange="actualizarCredito()">
             <option value="">Elegí una tarjeta</option>
-            {% for t in tarjetas_det %}<option value="{{ t.id }}" data-modalidad="{{ t.modalidad }}" data-moneda="{{ t.moneda }}">{{ t.etiqueta }}{% if t.moneda == 'USD' %} · US${% elif t.moneda == 'AMBAS' %} · $ y US${% endif %}</option>{% endfor %}
+            {% for t in tarjetas_det %}<option value="{{ t.id }}" data-modalidad="{{ t.modalidad }}" data-moneda="{{ t.moneda }}">{{ t.etiqueta }}</option>{% endfor %}
           </select></label>
         <label class="campo hidden" id="campo-banco"><span>Banco</span>
           <select name="banco_id" id="sel-banco">

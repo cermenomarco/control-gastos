@@ -115,6 +115,14 @@ TABLAS = [
            usd_ref REAL,                   -- la parte en dólares, en pesos al CCL de cada gasto
            UNIQUE (tarjeta_id, periodo)
        )""",
+    # Cada cobro de un gasto fijo que confirmaste (se cobró → gasto) o que falló
+    """CREATE TABLE IF NOT EXISTS fijo_cobros (
+           fijo_id INTEGER NOT NULL,
+           fecha TEXT NOT NULL,            -- fecha del cobro
+           estado TEXT NOT NULL,           -- 'cobrado' o 'fallido'
+           gasto_id INTEGER,               -- el gasto que se registró al confirmarlo
+           PRIMARY KEY (fijo_id, fecha)
+       )""",
 ]
 
 # Columnas que se fueron agregando a las tablas después de crearlas
@@ -124,8 +132,10 @@ COLUMNAS = {
         "cuotas INTEGER DEFAULT 1", "con_interes INTEGER DEFAULT 0", "total_con_interes REAL",
         # Gastos en dólares: 'monto' sigue siendo en pesos (USD × CCL del día), así todos los totales siguen igual
         "moneda TEXT DEFAULT 'ARS'", "monto_usd REAL", "cotizacion REAL",
+        "fijo_id INTEGER",  # si el gasto vino de confirmar el cobro de un gasto fijo
     ],
-    "fijos": ["cancelado_en TEXT", "activo_hasta TEXT"],
+    "fijos": ["cancelado_en TEXT", "activo_hasta TEXT", "moneda TEXT DEFAULT 'ARS'",
+              "confirmar_desde TEXT"],  # desde qué día se piden confirmar los cobros
     "tarjetas": ["modalidad TEXT DEFAULT 'credito'", "dia_cierre INTEGER", "dia_vencimiento INTEGER", "limite REAL",
                  "moneda TEXT DEFAULT 'ARS'"],  # ARS, USD o AMBAS
 }
@@ -147,6 +157,11 @@ def conectar():
                 con.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna}")
     if not habia_fijos:
         migrar_suscripciones(con)
+    hoy = date.today().isoformat()
+    # Los gastos fijos que ya existían empiezan a pedir confirmación desde hoy (no se duplica lo cargado a mano)
+    con.execute("UPDATE fijos SET confirmar_desde = ? WHERE confirmar_desde IS NULL", (hoy,))
+    # La moneda es de cada gasto, no de la tarjeta: todas aceptan pesos y dólares
+    con.execute("UPDATE tarjetas SET moneda = 'AMBAS' WHERE COALESCE(moneda, '') != 'AMBAS'")
     con.commit()
     return con
 

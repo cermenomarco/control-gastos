@@ -276,8 +276,11 @@ details.editar-tarjeta > summary::-webkit-details-marker{display:none}
 details.editar-tarjeta[open] > summary .btn{visibility:hidden}
 details.editar-tarjeta .edicion{padding:0 0 16px 48px}
 @media (max-width:480px){details.editar-tarjeta .edicion{padding-left:0}}
-.editar-plastico{font:500 12px Inter;letter-spacing:0;color:var(--pulpa);background:rgba(246,249,232,.12);border:none;border-radius:999px;padding:6px 12px;cursor:pointer}
-.editar-plastico:hover{background:rgba(246,249,232,.22)}
+
+.confirmar{border:2px solid var(--sol)}
+.monto-confirmar{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:var(--r-control);background:var(--card);padding:0 4px 0 10px}
+.monto-confirmar span{font:600 13px Poppins;color:var(--mut)}
+.monto-confirmar input{border:none;min-height:34px;padding:4px 6px;width:96px;background:none}
 
 /* ---------- Cuentas ---------- */
 .avatar{display:grid;place-items:center;width:40px;height:40px;border-radius:999px;background:var(--lima);color:var(--tinta);

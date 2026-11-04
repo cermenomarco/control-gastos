@@ -4,7 +4,6 @@
     <form class="form form-tarjeta" method="post" action="{{ url_for('editar_tarjeta', id_=t.id) if t else url_for('agregar_tarjeta') }}">
       <label class="campo"><span>Tipo</span><select name="tipo">{% for x in tipos %}<option{% if t and t.tipo == x %} selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
       <label class="campo"><span>Últimos 4 dígitos</span><input name="ultimos4" value="{{ t.ultimos4 if t else '' }}" placeholder="Ej: 4417" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label>
-      <label class="campo"><span>Moneda</span><select name="moneda">{% for k, v in monedas_tarjeta.items() %}<option value="{{ k }}"{% if t and t.moneda == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
       <label class="campo"><span>Crédito o débito</span><select name="modalidad" onchange="cambiarModalidad(this)">{% for k, v in modalidades.items() %}<option value="{{ k }}"{% if t and t.modalidad == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
       <label class="campo"><span>Banco (opcional)</span><select name="banco_id"><option value="">Sin banco</option>{% for bid, nombre in bancos %}<option value="{{ bid }}"{% if t and t.banco_id == bid %} selected{% endif %}>{{ nombre }}</option>{% endfor %}</select></label>
       <label class="campo solo-credito"><span>Día de cierre</span><input name="dia_cierre" type="number" min="1" max="31" value="{{ t.cierre if t and t.cierre else '' }}" placeholder="Ej: 25"></label>
@@ -29,11 +28,10 @@
     <article class="plastico{% if t.modalidad == 'debito' %} debito{% endif %}">
       <div class="marca-t">
         <span style="display:flex;align-items:center;gap:8px">{{ simbolo() }}<b>{{ t.tipo }}</b></span>
-        <span class="sub">{{ 'Crédito' if t.modalidad == 'credito' else 'Débito' }} · {{ {'ARS': '$', 'USD': 'US$', 'AMBAS': '$ y US$'}[t.moneda] }}</span>
+        <span class="sub">{{ 'Crédito' if t.modalidad == 'credito' else 'Débito' }}</span>
       </div>
       <div class="sub">{{ t.banco or 'Sin banco' }}{% if t.modalidad == 'credito' and t.cierre %} · cierra el {{ t.cierre }}, vence el {{ t.vence }}{% endif %}</div>
-      <div class="digitos" style="display:flex;justify-content:space-between;align-items:center">•••• {{ t.ultimos4 }}
-        <button type="button" class="editar-plastico" onclick="abrirEdicion({{ t.id }})" aria-label="Editar {{ t.tipo }} {{ t.ultimos4 }}">Editar</button></div>
+      <div class="digitos">•••• {{ t.ultimos4 }}</div>
       {% if t.modalidad == 'credito' %}
         {% if uso %}
         <div class="barra {{ uso.nivel }}" role="img" aria-label="{{ uso.porcentaje|round|int }}% del límite usado"><i style="width:{{ uso.ancho }}%"></i></div>
@@ -127,7 +125,7 @@
     <summary><h2 style="margin:0">Tus tarjetas y bancos</h2></summary>
     <h3 style="margin:0 0 12px">Agregar una tarjeta</h3>
     {{ form_tarjeta() }}
-    <p class="lbl">Solo cargá los últimos 4 dígitos, nunca el número completo. Para cambiar una tarjeta, tocá "Editar" en la lista de abajo.</p>
+    <p class="lbl">La moneda (pesos o dólares) se elige en cada gasto. Solo cargá los últimos 4 dígitos, nunca el número completo. Para cambiar una tarjeta, tocá "Editar" en la lista de abajo.</p>
 
     {% if tarjetas %}
     <h3 style="margin:24px 0 4px">Tus tarjetas</h3>
@@ -135,7 +133,7 @@
     <details class="editar-tarjeta" id="editar-{{ tid }}"{% if request.args.get('editar') == tid|string %} open{% endif %}>
       <summary class="fila">
         <span class="ico neutro">{{ icono('tarjetas', 18) }}</span>
-        <div class="cuerpo"><div class="titulo">{{ etiqueta }}{% if td.moneda != 'ARS' %} <span class="chico">· {{ monedas_tarjeta[td.moneda]|lower }}</span>{% endif %}</div>{% if info %}<div class="detalle">{{ info }}</div>{% endif %}</div>
+        <div class="cuerpo"><div class="titulo">{{ etiqueta }}</div>{% if info %}<div class="detalle">{{ info }}</div>{% endif %}</div>
         <span class="btn sec chico">Editar</span>
       </summary>
       <div class="edicion">
@@ -170,13 +168,6 @@ function cambiarModalidad(select) {
   ['dia_cierre', 'dia_vencimiento'].forEach(function (n) { form.querySelector('[name=' + n + ']').required = credito; });
 }
 document.querySelectorAll('.form-tarjeta select[name=modalidad]').forEach(cambiarModalidad);
-// "Editar" desde la tarjeta visual: abre la lista y el formulario de esa tarjeta
-function abrirEdicion(id) {
-  var item = document.getElementById('editar-' + id);
-  item.closest('details.card').open = true;
-  item.open = true;
-  item.scrollIntoView({behavior: 'smooth', block: 'start'});
-}
 var pedida = document.querySelector('details.editar-tarjeta[open]');
 if (pedida) { pedida.closest('details.card').open = true; pedida.scrollIntoView({block: 'start'}); }
 function metodoPago(radio) {

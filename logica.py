@@ -1,7 +1,7 @@
 """Constantes y cálculos de la app, sin Flask ni base de datos:
 reparto de cuotas por resumen de tarjeta, proyección mensual, etiquetas."""
 from calendar import monthrange
-from datetime import date
+from datetime import date, timedelta
 
 CATEGORIAS = ["comida", "transporte", "ocio", "hogar", "salud", "otros"]
 TIPOS_TARJETA = ["Visa", "Mastercard", "American Express"]
@@ -184,21 +184,80 @@ def cuotas_prestamo(total, cuotas, primer_vencimiento):
     return filas
 
 
-def proyeccion(fijos, proximos, hoy, prestamos=(), meses=6):
-    """Por mes: gastos fijos (según frecuencia, día de cobro y monto vigente) + resúmenes de tarjeta
-    pendientes (según su vencimiento) + cuotas de préstamos que debo. Aparte, lo que me tienen que pagar.
-    En el mes actual los fijos solo cuentan si falta cobrarlos; las cuotas de préstamo impagas
-    de meses anteriores (vencidas) se suman al mes actual.
-    fijos: dicts con dia, frecuencia, mes_inicio y montos. prestamos: (rol, vence, monto) impagas.
+def vencimiento_resumen(fecha, cierre, venc):
+    """Fecha de vencimiento del resumen en el que entra una compra de ese día."""
+    a, m = fecha.year, fecha.month
+    if fecha > fecha_dia(a, m, cierre):
+        a, m = sumar_meses(a, m, 1)
+    va, vm = (a, m) if venc > cierre else sumar_meses(a, m, 1)
+    return fecha_dia(va, vm, venc)
+
+
+def cobros_fijo(fijo, desde, hasta):
+    """Cobros de un gasto fijo entre dos fechas: (fecha, monto en la moneda del fijo)."""
+    a, m = desde.year, desde.month
+    while (a, m) <= (hasta.year, hasta.month):
+        if cobra_en(fijo, a, m):
+            fecha = fecha_dia(a, m, fijo["dia"])
+            monto = monto_vigente(fijo["montos"], periodo_de(a, m))
+            if desde <= fecha <= hasta and monto:
+                yield fecha, monto
+        a, m = sumar_meses(a, m, 1)
+
+
+def en_pesos(fijo, monto, ccl):
+    """Monto de un gasto fijo en pesos (los de dólares, al CCL indicado; sin CCL no se pueden estimar)."""
+    if fijo.get("moneda") == "USD":
+        return monto * ccl if ccl else 0.0
+    return monto
+
+
+VENTANA_PENDIENTES = timedelta(days=92)  # cobros sin confirmar más viejos que esto no se piden
+
+
+def cobros_pendientes(fijos, hoy, registrados):
+    """Cobros que ya tocaron (hasta hoy) y todavía no confirmaste ni marcaste como fallidos.
+    registrados: {(fijo_id, "AAAA-MM-DD"): estado}."""
+    pendientes = []
+    for f in fijos:
+        desde = max(f.get("desde") or hoy, hoy - VENTANA_PENDIENTES)
+        for fecha, monto in cobros_fijo(f, desde, hoy):
+            if (f["id"], fecha.isoformat()) not in registrados:
+                pendientes.append({"fijo": f, "fecha": fecha, "monto": monto})
+    pendientes.sort(key=lambda p: (p["fecha"], p["fijo"]["nombre"]))
+    return pendientes
+
+
+def compromisos_fijos(fijos, hoy, meses, registrados, ccl):
+    """Lo que falta pagar de gastos fijos, por mes: cobros futuros y pendientes de confirmar.
+    Los que se pagan con tarjeta de crédito cuentan en el mes en que vence su resumen.
+    Los ya confirmados no cuentan acá: son gastos (y si fueron con tarjeta, ya están en el resumen)."""
+    por_mes = {}
+    este_mes = date(hoy.year, hoy.month, 1)
+    limite = fecha_dia(*sumar_meses(hoy.year, hoy.month, meses - 1), 31)
+    for f in fijos:
+        desde = max(f.get("desde") or hoy, hoy - VENTANA_PENDIENTES)
+        for fecha, monto in cobros_fijo(f, desde, limite):
+            if (f["id"], fecha.isoformat()) in registrados:
+                continue
+            cuando = vencimiento_resumen(fecha, f["cierre"], f["venc"]) if f.get("cierre") and f.get("venc") else fecha
+            cuando = max(cuando, este_mes)
+            clave = (cuando.year, cuando.month)
+            por_mes[clave] = por_mes.get(clave, 0.0) + en_pesos(f, monto, ccl)
+    return por_mes
+
+
+def proyeccion(fijos, proximos, hoy, prestamos=(), meses=6, registrados=None, ccl=None):
+    """Por mes: gastos fijos por pagar + resúmenes de tarjeta pendientes (según su vencimiento)
+    + cuotas de préstamos que debo. Aparte, lo que me tienen que pagar.
+    Las cuotas de préstamo impagas de meses anteriores (vencidas) se suman al mes actual.
+    fijos: dicts de gastos fijos. prestamos: (rol, vence, monto) impagas.
     Devuelve dicts: mes, fijos, tarjetas, debo, total (lo que sale), cobrar."""
+    fijos_por_mes = compromisos_fijos(fijos, hoy, meses, registrados or {}, ccl)
     filas = []
     for k in range(meses):
         anio, mes = sumar_meses(hoy.year, hoy.month, k)
-        subs = sum(
-            monto_vigente(f["montos"], periodo_de(anio, mes)) or 0
-            for f in fijos
-            if cobra_en(f, anio, mes) and (k > 0 or f["dia"] >= hoy.day)
-        )
+        subs = fijos_por_mes.get((anio, mes), 0.0)
         tarjetas = sum(p["a_pagar"] for p in proximos
                        if not p["pagado"] and (p["vence"].year, p["vence"].month) == (anio, mes))
         debo = cobrar = 0.0
@@ -265,7 +324,8 @@ def gajos(total, presupuesto):
             "queda": max(queda, 0), "excedido": max(-queda, 0)}
 
 
-def eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_dia, objetivos, pagos=()):
+def eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_dia, objetivos, pagos=(),
+                       registrados=None, ccl=None):
     """Todo lo que pasa cada día entre `desde` y `hasta` (inclusive), para el calendario.
     fijos: dicts de gastos fijos (con montos, dia, frecuencia, mes_inicio, hasta).
     resumenes: dicts de resumenes_tarjetas (con 'corto', el nombre breve de la tarjeta).
@@ -279,17 +339,16 @@ def eventos_calendario(desde, hasta, hoy, fijos, resumenes, cuotas, gastos_por_d
             evento.setdefault("estado", "")
             dias.setdefault(fecha, []).append(evento)
 
-    # Gastos fijos: un evento por cobro, con el monto vigente ese mes
-    a, m = desde.year, desde.month
-    while (a, m) <= (hasta.year, hasta.month):
-        for f in fijos:
-            if cobra_en(f, a, m):
-                monto = monto_vigente(f["montos"], periodo_de(a, m))
-                if monto:
-                    fecha = fecha_dia(a, m, f["dia"])
-                    sumar(fecha, tipo="fijo", titulo=f["nombre"], monto=monto,
-                          estado="cobrado" if fecha < hoy else "", url="/fijos")
-        a, m = sumar_meses(a, m, 1)
+    # Gastos fijos: un evento por cobro, con su estado (cobrado, falló, a confirmar)
+    registrados = registrados or {}
+    for f in fijos:
+        for fecha, monto in cobros_fijo(f, desde, hasta):
+            estado = {"cobrado": "cobrado", "fallido": "falló"}.get(registrados.get((f["id"], fecha.isoformat())), "")
+            if not estado and fecha <= hoy:
+                estado = "a confirmar" if fecha >= (f.get("desde") or hoy) else "cobrado"
+            titulo = f["nombre"] + (f" · US$ {monto:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".").replace(",00", "")
+                                    if f.get("moneda") == "USD" else "")
+            sumar(fecha, tipo="fijo", titulo=titulo, monto=en_pesos(f, monto, ccl) or None, estado=estado, url="/fijos")
     for f in fijos:
         if f.get("hasta"):
             sumar(f["hasta"], tipo="fin", titulo=f"Termina {f['nombre']}", estado="sin cobro", url="/fijos")

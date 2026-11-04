@@ -15,7 +15,7 @@ La identidad visual sigue el brandbook de Marquito v1.0.
 
 ## Dólares
 
-- Las tarjetas pueden ser en pesos, en dólares o de las dos monedas; los gastos, en pesos o en USD.
+- La moneda es de cada gasto (no de la tarjeta): cualquier gasto o gasto fijo puede ser en pesos o en USD.
 - Un gasto en USD se convierte a pesos con el **CCL del día del gasto** (dólar de referencia) y ese valor nunca cambia.
 - **Pagar un resumen no es un gasto**: se registra la fecha, la parte en pesos y la parte en dólares
   (comprados al banco o convertidos en pesos), y la app guarda el costo real y la diferencia contra el CCL.
@@ -35,7 +35,9 @@ Abre http://localhost:5000. La primera vez te pide crear tu usuario; la "contras
 - **Inicio**: lo gastado en el mes, el medidor de gajos (con tu presupuesto mensual), agregar gasto, categorías y últimos gastos.
 - **Gastos**: lista completa con filtros por mes, día, tarjeta y banco.
 - **Tarjetas**: límite usado, próximos resúmenes (con "pagado") y alta de tarjetas y bancos.
-- **Gastos fijos**: suscripciones, servicios, impuestos y alquiler, con frecuencia e historial de montos. Al cancelar uno, sigue activo hasta su próximo cobro, que ya no se hace, y queda en "Cancelados".
+- **Gastos fijos**: suscripciones, servicios, impuestos y alquiler, en pesos o en dólares, con frecuencia e historial de montos.
+  El día de cada cobro el Inicio pregunta si se cobró: si se cobró se registra el gasto (con su tarjeta);
+  si falló, queda anotado sin gasto. Al cancelar uno, sigue activo hasta su próximo cobro, que ya no se hace, y queda en "Cancelados".
 - **Calendario**: vista mes y semana con cobros de gastos fijos, cierres y vencimientos de tarjetas, cuotas de préstamos, lo gastado cada día y fechas meta.
 - **Préstamos**: lo que debo y lo que me deben, en cuotas, con o sin interés.
 - **Objetivos**: presupuestos (ej. un viaje) con ítems que se tachan y ahorro mensual sugerido.

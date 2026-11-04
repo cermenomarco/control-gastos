@@ -26,9 +26,9 @@
             <div class="detalle">{{ f.tipo }} · {{ f.frecuencia_txt|lower }}{% if f.proximo %} · próximo {{ f.proximo }}{% endif %}{% if f.tarjeta %} · {{ f.tarjeta }}{% endif %}</div>
             {% if f.cancelado %}<span class="pildora neutra" style="margin-top:4px">Cancelada · activa hasta el {{ f.hasta|fecha_corta }}</span>{% endif %}
             {% if f.empieza %}<span class="pildora neutra" style="margin-top:4px">Empieza en {{ f.empieza|mes }}</span>{% endif %}
-            {% if f.aumento %}<span class="pildora aviso" style="margin-top:4px">Pasa a {{ f.aumento[1]|peso }} en {{ f.aumento[0]|mes }}</span>{% endif %}
+            {% if f.aumento %}<span class="pildora aviso" style="margin-top:4px">Pasa a {{ f.aumento[1]|usd if f.moneda == 'USD' else f.aumento[1]|peso }} en {{ f.aumento[0]|mes }}</span>{% endif %}
           </div>
-          <div class="monto"{% if f.cancelado %} style="color:var(--mut)"{% endif %}>{{ f.monto|peso }}</div>
+          <div class="monto"{% if f.cancelado %} style="color:var(--mut)"{% endif %}>{{ f.monto|usd if f.moneda == 'USD' else f.monto|peso }}{% if f.moneda == 'USD' and ccl_hoy %}<div class="chico">≈ {{ (f.monto * ccl_hoy)|peso }}</div>{% endif %}</div>
         </div>
       </summary>
       <div style="padding:0 0 16px 48px">
@@ -37,13 +37,25 @@
         <form method="post" action="{{ url_for('reactivar_fijo', id_=f.id) }}" style="margin-bottom:16px"><button class="btn sec chico">{{ icono('deshacer', 14) }} Reactivar</button></form>
         {% else %}
         <form class="form" method="post" action="{{ url_for('actualizar_monto', id_=f.id) }}">
-          <label class="campo"><span>Nuevo monto</span><input name="monto" placeholder="Ej: 18.500" inputmode="decimal" required></label>
+          <label class="campo"><span>Nuevo monto ({{ 'US$' if f.moneda == 'USD' else '$' }})</span><input name="monto" placeholder="Ej: 18.500" inputmode="decimal" required></label>
           <label class="campo"><span>Desde</span><input type="month" name="desde" value="{{ mes_actual }}" required></label>
           <div><button class="btn chico">Guardar aumento</button></div>
         </form>
         {% endif %}
+        {% if f.cobros %}
+        <div style="margin-top:16px">
+          <div class="mini" style="margin-bottom:4px">Últimos cobros</div>
+          {% for fecha, estado in f.cobros %}
+          <div class="cuota">
+            <span>{{ fecha|fecha_corta }} · <span class="pildora {{ 'ok' if estado == 'cobrado' else 'alerta' }}">{{ 'Se cobró' if estado == 'cobrado' else 'No se cobró' }}</span></span>
+            <form method="post" action="{{ url_for('confirmar_cobro', id_=f.id, fecha=fecha.isoformat()) }}"><input type="hidden" name="accion" value="deshacer">
+              <button class="borrar" title="Volver a dejarlo para confirmar{{ ' (se borra el gasto registrado)' if estado == 'cobrado' }}">{{ icono('deshacer', 14) }} Deshacer</button></form>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
         {% if f.anteriores %}
-        <p class="lbl" style="margin:12px 0 0">Antes: {% for desde, monto in f.anteriores %}{{ monto|peso }} desde {{ desde|mes }}{{ ' · ' if not loop.last }}{% endfor %}</p>
+        <p class="lbl" style="margin:12px 0 0">Antes: {% for desde, monto in f.anteriores %}{{ monto|usd if f.moneda == 'USD' else monto|peso }} desde {{ desde|mes }}{{ ' · ' if not loop.last }}{% endfor %}</p>
         {% endif %}
         <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:16px">
           {% if not f.cancelado %}
@@ -58,7 +70,7 @@
       </div>
     </details>
     {% else %}<p class="vacio">Todavía no cargaste gastos fijos. Sumá suscripciones, la luz, internet, el alquiler...</p>{% endfor %}
-    {% if activos %}<p class="lbl" style="margin-bottom:0">Tocá uno para cargarle un aumento: los meses anteriores no cambian, y si ya sabés que aumenta, ponele un mes futuro.</p>{% endif %}
+    {% if activos %}<p class="lbl" style="margin-bottom:0">El día de cada cobro te pregunto en el Inicio si se cobró; recién ahí se anota como gasto. Tocá uno para cargarle un aumento: los meses anteriores no cambian, y si ya sabés que aumenta, ponele un mes futuro.</p>{% endif %}
   </section>
 
   {% if terminados %}
@@ -85,7 +97,15 @@
     <form class="form" method="post" action="{{ url_for('agregar_fijo') }}">
       <label class="campo"><span>Nombre</span><input name="nombre" placeholder="Ej: Netflix, luz, ABL" required></label>
       <label class="campo"><span>Tipo</span><select name="tipo">{% for k, v in tipos_fijo.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
-      <label class="campo"><span>Monto de cada cobro</span><input name="monto" placeholder="Ej: 12.999" inputmode="decimal" required></label>
+      <div class="campo"><span>Monto de cada cobro</span>
+        <div class="monto-moneda">
+          <div class="seg-moneda" role="radiogroup" aria-label="Moneda">
+            <label><input type="radio" name="moneda" value="ARS" checked><span>$</span></label>
+            <label><input type="radio" name="moneda" value="USD"><span>US$</span></label>
+          </div>
+          <input name="monto" placeholder="Ej: 12.999" inputmode="decimal" required aria-label="Monto">
+        </div>
+      </div>
       <label class="campo"><span>Día de cobro</span><input name="dia_cobro" type="number" min="1" max="31" placeholder="Ej: 10" required></label>
       <label class="campo"><span>Frecuencia</span><select name="frecuencia" id="frecuencia" onchange="cambiarFrecuencia()">{% for k, v in frecuencias.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
       <label class="campo" id="mes-inicio"><span>Mes del primer cobro</span><input type="month" name="mes_inicio" value="{{ mes_actual }}"></label>

@@ -12,7 +12,7 @@
   'fin': ('cerrar', 'var(--mut)', 'Baja de un gasto fijo'),
   'meta': ('objetivos', 'var(--sol)', 'Fecha meta'),
 } %}
-{% set ESTADOS = {'pagado': 'ok', 'pagada': 'ok', 'cobrada': 'ok', 'cobrado': 'neutra', 'vencido': 'alerta', 'vencida': 'alerta', 'sin cobro': 'neutra'} %}
+{% set ESTADOS = {'pagado': 'ok', 'pagada': 'ok', 'cobrada': 'ok', 'cobrado': 'neutra', 'vencido': 'alerta', 'vencida': 'alerta', 'sin cobro': 'neutra', 'a confirmar': 'aviso', 'falló': 'alerta'} %}
 {% set DIAS_CORTOS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'] %}
 {% set DIAS_LARGOS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'] %}
 {% set MESES_L = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'] %}
