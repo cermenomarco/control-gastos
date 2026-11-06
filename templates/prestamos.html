@@ -49,11 +49,11 @@
     <div class="stat"><div class="lbl">Cuotas vencidas</div><div class="big{% if vencidas %} alerta{% endif %}">{{ vencidas }}</div></div>
   </div>
 
-  {% if te_deben %}{{ reint.te_deben_card(te_deben, total_te_deben, 'prestamos') }}{% endif %}
+  {% if te_deben %}{{ reint.te_deben_card(te_deben, total_te_deben, 'prestamos', titulo='Pagaste por otros') }}{% endif %}
 
   <div class="grilla dos">
-    {{ lista('deudor', 'Debés', 'pagada', 'No tenés préstamos por pagar.') }}
-    {{ lista('acreedor', 'Te deben', 'cobrada', 'Nadie te debe plata por ahora.') }}
+    {{ lista('deudor', 'Préstamos que debés', 'pagada', 'No tenés préstamos por pagar.') }}
+    {{ lista('acreedor', 'Préstamos que hiciste', 'cobrada', 'No le prestaste plata a nadie.') }}
   </div>
 
   <details class="card plegable"{% if not prestamos.get('deudor') and not prestamos.get('acreedor') or request.args.get('error') == 'prestamo' %} open{% endif %}>

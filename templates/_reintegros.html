@@ -25,9 +25,9 @@
 {%- endmacro %}
 
 {#- Tarjeta "Te deben", agrupada por persona. volver: a qué página vuelve después de cada acción. -#}
-{% macro te_deben_card(te_deben, total, volver, compacta=False) -%}
+{% macro te_deben_card(te_deben, total, volver, titulo='Te deben') -%}
 <section class="card" id="te-deben">
-  <div class="cabeza"><h2>Te deben</h2><span class="mini">{{ total|peso }}</span></div>
+  <div class="cabeza"><h2>{{ titulo }}</h2><span class="mini">{{ total|peso }}</span></div>
   {% for g in te_deben %}
   <details class="plegable grupo-reint" style="border-bottom:1px solid var(--line)">
     <summary>
@@ -35,7 +35,8 @@
         <span class="ico">{{ icono('usuarios', 18) }}</span>
         <div class="cuerpo">
           <div class="titulo">{{ g.nombre }}</div>
-          <div class="detalle">{{ g.cantidad }} pendiente{{ 's' if g.cantidad != 1 }}{% if g.cantidad > 1 %} · el más viejo hace {{ g.mas_viejo }} día{{ 's' if g.mas_viejo != 1 }}{% elif g.mas_viejo %} · hace {{ g.mas_viejo }} día{{ 's' if g.mas_viejo != 1 }}{% else %} · de hoy{% endif %}</div>
+          <div class="detalle">{{ g.cantidad }} pendiente{{ 's' if g.cantidad != 1 }} ·
+            {%- if not g.mas_viejo %} de hoy{% elif g.cantidad > 1 %} el más viejo, hace {{ g.mas_viejo }} día{{ 's' if g.mas_viejo != 1 }}{% else %} hace {{ g.mas_viejo }} día{{ 's' if g.mas_viejo != 1 }}{% endif %}</div>
           {% if g.atrasado %}<span class="pildora aviso" style="margin-top:4px">{{ icono('alerta', 12) }} Hace más de 30 días</span>{% endif %}
         </div>
         <div class="monto">{{ g.total|peso }}</div>
@@ -63,6 +64,10 @@
           </details>
           <form method="post" action="{{ url_for('actualizar_reintegro', id_=r.id) }}" onsubmit="return confirm('¿No te lo devuelve? Pasa a ser gasto tuyo.')"><input type="hidden" name="volver" value="{{ volver }}">
             <button class="borrar" name="accion" value="no_devuelve">No me lo devuelve</button></form>
+          <form method="post" action="{{ url_for('actualizar_reintegro', id_=r.id) }}" style="margin-left:auto"
+                onsubmit="return confirm('¿Borrar este pendiente? El gasto queda entero como tuyo. Si te equivocaste en el monto, volvé a anotarlo desde Gastos tocando el gasto.')">
+            <input type="hidden" name="volver" value="{{ volver }}">
+            <button class="papelera" name="accion" value="borrar" title="Borrar (lo cargué mal)" aria-label="Borrar lo que te debe {{ r.persona }}">{{ icono('papelera', 16) }}</button></form>
         </div>
       </div>
       {% endfor %}
